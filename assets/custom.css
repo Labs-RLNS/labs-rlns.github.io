@@ -1,0 +1,7 @@
+/*
+  Your own style changes. This file loads after the site's main stylesheet,
+  so anything here wins. The Control Panel never overwrites it.
+
+  Example, a deeper accent color:
+  :root { --accent: #5a0f1f; }
+*/
