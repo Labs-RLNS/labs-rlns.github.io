@@ -1,14 +1,14 @@
 {
  "version": 1,
- "updated": "2026-10-22T01:22:57.324Z",
+ "updated": "2026-10-22T01:24:45.888Z",
  "site": {
   "name": "Austin Rolens",
   "email": "ajrolens@rocketmail.com",
   "theme": "night",
   "intros": {
-   "projects": "Builds, research, theories and papers.",
-   "creatives": "Poems, art, stories and games made to be felt.",
-   "questions": "Open questions nobody has answered yet, sorted by field."
+   "projects": "",
+   "creatives": "",
+   "questions": ""
   },
   "assetVersion": "1.0.1",
   "url": "https://labs-rlns.github.io"
