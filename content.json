@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-22T01:31:55.244Z",
+ "updated": "2026-10-22T05:59:50.587Z",
  "site": {
   "name": "RLNS",
   "email": "ajrolens@rocketmail.com",
@@ -10,7 +10,7 @@
    "creatives": "",
    "questions": ""
   },
-  "assetVersion": "1.0.1",
+  "assetVersion": "1.0.2",
   "url": "https://labs-rlns.github.io"
  },
  "projects": [],
