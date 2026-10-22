@@ -5,13 +5,13 @@
   "name": "RLNS",
   "email": "ajrolens@rocketmail.com",
   "theme": "night",
+  "url": "https://labs-rlns.github.io",
   "intros": {
    "projects": "Objective",
    "creatives": "Subjective",
-   "questions": "Philospohical"
+   "questions": "Philosophical"
   },
-  "assetVersion": "1.1.0",
-  "url": "https://labs-rlns.github.io"
+  "assetVersion": "1.2.0"
  },
  "projects": [],
  "creatives": [],

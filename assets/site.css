@@ -42,7 +42,7 @@
   --line-soft: #231b1d;
   --text: #ddd6ce;
   --text-2: #a79c96;
-  --text-3: #877c76;
+  --text-3: #a09690;
   --accent: #6e1527;
   --accent-hi: #85203a;
   --accent-ink: #f2e9e4;
@@ -99,6 +99,8 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html {
+  scrollbar-gutter: stable;
+  scroll-padding-top: 24px;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   background: var(--bg);
@@ -106,6 +108,7 @@ html {
 }
 
 body {
+  isolation: isolate;
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
@@ -146,6 +149,9 @@ p { text-wrap: pretty; }
   border-radius: 3px;
 }
 [tabindex="-1"]:focus-visible { outline: none; }
+:where(h1, h2, h3, [id]) { scroll-margin-top: 24px; }
+#view { position: relative; z-index: 1; }
+html:not(.js) .controls { display: none; }
 
 .icon {
   width: 18px;
@@ -186,7 +192,7 @@ p { text-wrap: pretty; }
 .grain {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 0;
   pointer-events: none;
   background-image: var(--grain);
   background-size: 180px 180px;
@@ -196,7 +202,7 @@ body::after {
   content: "";
   position: fixed;
   inset: 0;
-  z-index: 59;
+  z-index: 0;
   pointer-events: none;
   background: var(--vignette);
 }
@@ -209,7 +215,7 @@ body::after {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 34px;
+  min-height: 44px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: var(--r-s);
@@ -239,7 +245,7 @@ body::after {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-s);
@@ -263,7 +269,7 @@ body::after {
   display: grid;
   place-content: center;
   justify-items: center;
-  padding: 64px 24px 96px;
+  padding: clamp(48px, 9vh, 100px) 24px 112px;
   text-align: center;
   /* The glow is wider than a phone screen. Clip it here so it can't widen the page:
      on phones that made the browser zoom out and pushed the corner buttons off-screen. */
@@ -288,11 +294,13 @@ body::after {
   margin: 0;
   font-family: var(--serif);
   font-weight: 300;
-  font-size: clamp(3.1rem, 11.5vw, 9.75rem);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: clamp(3.1rem, 11.5vw, 10.5rem);
   line-height: 0.95;
   letter-spacing: -0.032em;
   color: var(--text);
-  text-shadow: 0 0 1px var(--halo-1), 0 0 24px var(--halo-2), 0 0 90px var(--halo-3);
+  text-shadow: 0 0 70px var(--halo-3);
 }
 
 .home-line {
@@ -303,11 +311,11 @@ body::after {
 }
 
 .home-nav {
-  margin-top: clamp(26px, 3.4vw, 42px);
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px clamp(20px, 3.2vw, 44px);
+  margin-top: clamp(40px, 5vw, 64px);
+  width: min(840px, calc(100vw - 64px));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
   font-family: var(--serif);
   font-size: clamp(1.08rem, 1.55vw, 1.32rem);
   line-height: 1.3;
@@ -315,15 +323,20 @@ body::after {
 .home-nav a {
   position: relative;
   display: inline-grid;
-  justify-items: center;
+  justify-items: start;
   align-content: start;
-  padding: 8px 2px;
-  color: var(--text-2);
+  padding: 16px 0 12px;
+  text-align: left;
+  border-top: 1px solid var(--line);
+  color: var(--text);
   text-decoration: none;
-  transition: color 0.2s;
+  transition: color 0.2s, border-color 0.2s;
 }
+.home-index { margin-bottom: 18px; font: 450 0.6875rem/1 var(--mono); letter-spacing: 0.1em; color: var(--text-3); }
+.home-label { overflow-wrap: anywhere; }
+.home-nav a::after { content: '↗'; position: absolute; right: 0; top: 12px; font: 400 1.1rem/1 var(--sans); color: var(--text-3); }
 .home-nav a:hover,
-.home-nav a:focus-visible { color: var(--text); }
+.home-nav a:focus-visible { color: var(--text); border-top-color: var(--accent-line); }
 .home-nav a:hover .home-label,
 .home-nav a:focus-visible .home-label {
   text-decoration: underline;
@@ -333,8 +346,8 @@ body::after {
 }
 /* The section's own short intro, as a subtitle under its link. */
 .home-intro {
-  margin-top: 5px;
-  font: italic 380 0.8em/1.25 var(--serif);
+  margin-top: 9px;
+  font: 400 0.75rem/1.5 var(--sans);
   color: var(--text-2);
 }
 .home-new {
@@ -354,27 +367,10 @@ body::after {
   bottom: max(12px, env(safe-area-inset-bottom));
   z-index: 70;
 }
-.controls-home [data-action="search"] { display: none; }
+.controls-home { padding: 4px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg-2); }
 
-/* The one orchestrated moment: the name develops out of the dark. */
-html.js .is-home .home-name { animation: develop 2.8s var(--ease) both; }
-html.js .is-home .home-line,
-html.js .is-home .home-nav { animation: surface 1.4s 1.1s var(--ease) both; }
-html.js .is-home .home-glow { animation: safelight 3.4s ease-out both; }
-html.js.seen .is-home .home-name,
-html.js.seen .is-home .home-line,
-html.js.seen .is-home .home-nav,
-html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s; }
-
-@keyframes develop {
-  0% { opacity: 0; filter: blur(10px) brightness(0.3); letter-spacing: -0.012em; }
-  55% { opacity: 0.8; filter: blur(1.5px) brightness(0.8); }
-  100% { opacity: 1; filter: none; letter-spacing: -0.032em; }
-}
-@keyframes surface {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+/* Only the background fades in. Content and navigation are ready immediately. */
+html.js .is-home .home-glow { animation: safelight 0.6s ease-out both; }
 @keyframes safelight {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -431,7 +427,7 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
   text-decoration: none;
   transition: color 0.15s, background-color 0.15s;
 }
-.rail-link { font: 500 0.9375rem/1.25 var(--sans); }
+.rail-link { min-height: 44px; font: 500 0.9375rem/1.25 var(--sans); }
 .rail-link:hover,
 .rail-field:hover { color: var(--text); background: var(--raise); }
 .rail-link.is-on {
@@ -489,6 +485,7 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
 /* ------------------------------------------------------------ section heads & filters */
 
 .sec-head { max-width: 46rem; margin-bottom: clamp(28px, 4vw, 48px); }
+.sec-head::before { content: ''; display: block; width: 32px; height: 2px; margin-bottom: 24px; background: var(--accent-line); }
 .sec-title {
   margin: 0;
   font: 300 clamp(2.6rem, 5.6vw, 4.6rem)/1 var(--serif);
@@ -508,7 +505,7 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 32px;
+  min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -697,6 +694,7 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
 /* ------------------------------------------------------------ item pages */
 
 .crumb {
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -920,11 +918,7 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
 
 /* ------------------------------------------------------------ develop: images come up like prints */
 
-html.js img.develop {
-  opacity: 0;
-  filter: brightness(0.35) sepia(0.9) hue-rotate(-38deg) saturate(1.8) contrast(0.85);
-  transition: opacity 1s ease, filter 2s var(--ease);
-}
+html.js img.develop { opacity: 1; }
 html.js img.develop.is-in { opacity: 1; filter: none; }
 
 /* ------------------------------------------------------------ search */
@@ -943,7 +937,7 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
 .palette[hidden] { display: none; }
 .palette-box {
   width: min(640px, 100%);
-  max-height: min(70vh, 640px);
+  max-height: min(80dvh, 640px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -965,8 +959,14 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
 }
 .palette-input::placeholder { color: var(--text-3); }
 .palette-input:focus-visible { outline: none; }
+.palette-field:focus-within { box-shadow: inset 0 -2px 0 var(--accent-line); }
+.palette-close { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 0; border-radius: 4px; background: transparent; color: var(--text-2); cursor: pointer; }
+.palette-close:hover { background: var(--raise-2); color: var(--text); }
 .palette-esc { font: 500 0.6875rem/1 var(--sans); color: var(--text-3); border: 1px solid var(--line); border-radius: 3px; padding: 3px 5px; }
 .palette-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; }
+.palette-list { overscroll-behavior: contain; }
+.palette-field, .palette-foot { flex-shrink: 0; }
+.palette-foot > span { color: var(--text-2); }
 .palette-group { padding: 12px 10px 6px; font: 500 0.72rem/1 var(--sans); color: var(--text-3); }
 .palette-opt {
   display: grid;
@@ -999,8 +999,8 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
   position: fixed;
   top: 14px;
   right: 14px;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1024,6 +1024,8 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
 }
 
 @media (max-width: 900px) {
+  html { scroll-padding-top: 140px; }
+  :where(h1, h2, h3, [id]) { scroll-margin-top: 140px; }
   .app { grid-template-columns: minmax(0, 1fr); }
   .rail {
     position: sticky;
@@ -1045,7 +1047,7 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
   .rail-name { font-size: 1.1875rem; padding: 6px 0; }
   .rail-foot { order: 2; margin: 0 0 0 auto; padding: 0; display: block; }
   .controls-rail { flex-direction: row; margin: 0 -8px 0 0; gap: 2px; }
-  .controls-rail .ctl { width: 40px; height: 40px; padding: 0; justify-content: center; }
+  .controls-rail .ctl { width: 44px; height: 44px; padding: 0; justify-content: center; }
   .controls-rail .ctl-label, .controls-rail .ctl-key { display: none; }
   .rail-updated { display: none; }
   .rail-nav {
@@ -1084,9 +1086,23 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
   .pager { grid-template-columns: minmax(0, 1fr); }
   .pager-older { text-align: left; }
   .controls-home .ctl-label { display: none; }
-  .home-nav { flex-direction: column; align-items: center; gap: 0; }
-  .home-nav a { padding: 7px 2px; }
-  .controls-home .ctl { width: 40px; padding: 0; justify-content: center; }
+  .home-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 24px; }
+  .home-nav a { padding: 12px 0 4px; }
+  .home-index { margin-bottom: 12px; }
+  .controls-home .ctl { width: 44px; padding: 0; justify-content: center; }
+  .controls-home .ctl-key { display: none; }
+}
+
+@media (max-height: 550px) {
+  .home { padding-top: 40px; }
+  .home-name { font-size: clamp(3.1rem, 10vw, 6rem); }
+  .palette { padding-top: 12px; }
+  .palette-box { max-height: calc(100dvh - 24px); }
+}
+
+@media (forced-colors: active) {
+  .grain, .home-glow, body::after { display: none; }
+  .rail-link.is-on, .chip.is-on, .palette-opt[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
 }
 
 /* The narrowest phones: all four sections still fit across the top bar. */

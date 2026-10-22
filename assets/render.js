@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var R = { VERSION: '1.1.0' };
+  var R = { VERSION: '1.2.0' };
 
   /* ------------------------------------------------------------------ basics */
 
@@ -612,9 +612,9 @@
 
   function controlsHTML(where) {
     return '<div class="controls controls-' + where + '">' +
-      '<button type="button" class="ctl" data-action="search" aria-keyshortcuts="/ Control+K Meta+K">' + icon('search') + '<span class="ctl-label">Search</span><kbd class="ctl-key">/</kbd></button>' +
+      '<button type="button" class="ctl" data-action="search" aria-label="Search" aria-keyshortcuts="Control+K Meta+K">' + icon('search') + '<span class="ctl-label">Search</span><kbd class="ctl-key">/</kbd></button>' +
       '<button type="button" class="ctl" data-action="theme">' + icon('paper') + '<span class="ctl-label">Paper</span></button>' +
-      '<button type="button" class="ctl" data-action="sound" aria-pressed="false">' + icon('sound') + '<span class="ctl-label">Room tone</span></button>' +
+      '<button type="button" class="ctl" data-action="sound" aria-label="Room tone" aria-pressed="false">' + icon('sound') + '<span class="ctl-label">Room tone</span></button>' +
       '</div>';
   }
 
@@ -972,12 +972,12 @@
   R.homeIntro = homeIntro;
 
   function homeHTML(c) {
-    return '<main class="home" id="main">' +
+    return '<main class="home" id="main" tabindex="-1">' +
       '<div class="home-glow" aria-hidden="true"></div>' +
-      '<h1 class="home-name">' + esc(c.site.name) + '</h1>' +
+      '<h1 class="home-name" tabindex="-1">' + esc(c.site.name) + '</h1>' +
       (c.site.tagline ? '<p class="home-line">' + esc(c.site.tagline) + '</p>' : '') +
-      '<nav class="home-nav" aria-label="Sections">' + SECTIONS.map(function (s) {
-        return '<a href="' + s.path + '" data-section="' + s.key + '"><span class="home-label">' + esc(s.label) + '</span>' +
+      '<nav class="home-nav" aria-label="Sections">' + SECTIONS.map(function (s, i) {
+        return '<a href="' + s.path + '" data-section="' + s.key + '"><span class="home-index" aria-hidden="true">0' + (i + 1) + '</span><span class="home-label">' + esc(s.label) + '</span>' +
           homeIntro(c, s.key) + '<span class="home-new" hidden></span></a>';
       }).join('') + '</nav>' +
       '</main>' + controlsHTML('home');
@@ -1040,7 +1040,7 @@
     }
     v.html = '<a class="skip" href="#main">Skip to content</a>' +
       '<div class="app">' + railHTML(c, route) +
-      '<main class="main" id="main" data-route="' + esc(route.name) + '">' + main + '</main></div>';
+      '<main class="main" id="main" tabindex="-1" data-route="' + esc(route.name) + '">' + main + '</main></div>';
     return v;
   };
 
@@ -1129,12 +1129,14 @@
       '<meta name="theme-color" content="' + R.themeColor(c.site.theme) + '">\n' +
       '<meta name="color-scheme" content="dark light">\n';
     if (base && v.status !== 404) out += '<link rel="canonical" href="' + esc(base + path) + '">\n';
+    if (v.status === 404) out += '<meta name="robots" content="noindex">\n';
     out += '<meta property="og:site_name" content="' + esc(c.site.name) + '">\n' +
       '<meta property="og:title" content="' + esc(v.title) + '">\n' +
       '<meta property="og:description" content="' + esc(v.description) + '">\n' +
       '<meta property="og:type" content="' + (route.name === 'item' || route.name === 'question' ? 'article' : 'website') + '">\n' +
       (base ? '<meta property="og:url" content="' + esc(base + path) + '">\n' : '') +
       (image ? '<meta property="og:image" content="' + esc(image) + '">\n' +
+        '<meta property="og:image:alt" content="' + esc(v.item && v.item.cover && v.item.cover.alt || v.title) + '">\n' +
         (size ? '<meta property="og:image:width" content="' + size[0] + '">\n<meta property="og:image:height" content="' + size[1] + '">\n' : '') +
         '<meta name="twitter:card" content="summary_large_image">\n' : '');
     out += scholarMeta(c, route, v) + structuredData(c, route, v, base);

@@ -96,8 +96,13 @@
     doc.body.classList.toggle('is-home', v.bodyClass === 'is-home');
     doc.body.classList.toggle('is-reading', v.bodyClass === 'is-reading');
     doc.title = v.title;
-    var md = doc.querySelector('meta[name="description"]');
-    if (md) md.setAttribute('content', v.description);
+    // Keep the address, canonical, sharing and citation metadata in agreement
+    // during instant navigation, just as they are on a direct page load.
+    var metadata = doc.createElement('template');
+    metadata.innerHTML = R.headMeta(state.content, route, v);
+    var selector = 'meta[name="description"],meta[name="robots"],link[rel="canonical"],meta[property^="og:"],meta[name^="twitter:"],meta[name^="citation_"],script[type="application/ld+json"]';
+    doc.head.querySelectorAll(selector).forEach(function (el) { el.remove(); });
+    metadata.content.querySelectorAll(selector).forEach(function (el) { doc.head.appendChild(el); });
     state.route = route;
     enhance();
     return v;
@@ -166,6 +171,8 @@
   }
 
   function onPopState(e) {
+    closePalette();
+    closeViewer();
     if (!state.content) { location.reload(); return; }
     var route = R.route(location.pathname, location.search);
     renderRoute(route, { scroll: (e.state && e.state.scroll) || 0, instant: true });
@@ -234,6 +241,11 @@
       b.setAttribute('aria-pressed', sound.on ? 'true' : 'false');
       b.title = sound.on ? 'Turn room tone off' : 'Play a quiet room tone';
     });
+    doc.querySelectorAll('[data-action="shortcuts"]').forEach(function (b) {
+      var enabled = lsGet('ar-shortcuts') !== '0';
+      b.setAttribute('aria-pressed', String(enabled));
+      b.textContent = 'Single-key shortcuts: ' + (enabled ? 'On' : 'Off');
+    });
   }
 
   function randomQuestion() {
@@ -255,6 +267,8 @@
     if (!label) return;
     if (!btn.hasAttribute('data-label')) btn.setAttribute('data-label', label.textContent);
     label.textContent = text;
+    var announcer = doc.getElementById('announcer');
+    if (announcer) announcer.textContent = text;
     clearTimeout(btn._flash);
     btn._flash = setTimeout(function () { label.textContent = btn.getAttribute('data-label'); }, 1800);
   }
@@ -291,12 +305,38 @@
     else if (a === 'random-question') randomQuestion();
     else if (a === 'copy') copyText(b);
     else if (a === 'share') shareLink(b);
+    else if (a === 'shortcuts') {
+      lsSet('ar-shortcuts', lsGet('ar-shortcuts') === '0' ? '1' : '0');
+      syncControls();
+    }
   }
 
   /* ---------------------------------------------------------------- search */
 
   var pal = null;
   var palReturn = null;
+  var modalOverflow = null;
+
+  function modalBackground(open) {
+    var view = doc.getElementById('view');
+    if (view) view.inert = open;
+    if (open && modalOverflow === null) {
+      modalOverflow = doc.body.style.overflow;
+      doc.body.style.overflow = 'hidden';
+    } else if (!open && modalOverflow !== null) {
+      doc.body.style.overflow = modalOverflow;
+      modalOverflow = null;
+    }
+  }
+
+  function trapTab(e, root) {
+    if (e.key !== 'Tab') return;
+    var els = root.querySelectorAll('input, button, a[href]');
+    if (!els.length) return;
+    var first = els[0], last = els[els.length - 1];
+    if (e.shiftKey && doc.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && doc.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
 
   function buildPalette() {
     var root = doc.createElement('div');
@@ -309,9 +349,11 @@
       '<div class="palette-field">' + R.icon('search') +
       '<input class="palette-input" type="text" placeholder="Search projects, creatives and questions" autocomplete="off" spellcheck="false" ' +
       'role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" aria-label="Search">' +
-      '<kbd class="palette-esc">Esc</kbd></div>' +
-      '<ul class="palette-list" id="palette-list" role="listbox" aria-label="Results"></ul>' +
-      '<div class="palette-foot"><span>↑ ↓ to move</span><span>Enter to open</span><span>1–4 jump between sections</span></div>' +
+      '<button type="button" class="palette-close" aria-label="Close search">' + R.icon('close') + '</button></div>' +
+      '<ul class="palette-list" id="palette-list" role="listbox" aria-label="Results" tabindex="-1"></ul>' +
+      '<div class="palette-status sr-only" role="status" aria-live="polite"></div>' +
+      '<div class="palette-foot"><span>↑ ↓ to move · Enter to open · Esc to close</span>' +
+      '<button type="button" class="ctl" data-action="shortcuts" aria-pressed="true" title="Turn / and 1–4 shortcuts on or off. Ctrl+K always opens search.">Single-key shortcuts: On</button></div>' +
       '</div>';
     doc.body.appendChild(root);
     var input = root.querySelector('input');
@@ -322,8 +364,11 @@
       if (e.key === 'ArrowDown') { e.preventDefault(); movePalette(1); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); movePalette(-1); }
       else if (e.key === 'Enter') { e.preventDefault(); choosePalette(p.sel); }
-      else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
-      else if (e.key === 'Tab') { e.preventDefault(); }
+    });
+    root.querySelector('.palette-close').addEventListener('click', closePalette);
+    root.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+      else trapTab(e, root);
     });
     root.addEventListener('mousedown', function (e) { if (e.target === root) closePalette(); });
     list.addEventListener('click', function (e) {
@@ -338,17 +383,21 @@
   }
 
   function openPalette() {
+    if (pal && !pal.root.hidden) return;
     if (!pal) pal = buildPalette();
     palReturn = doc.activeElement;
     pal.root.hidden = false;
     pal.input.value = '';
     fillPalette('');
+    syncControls();
     pal.input.focus();
+    modalBackground(true);
   }
 
   function closePalette() {
     if (!pal || pal.root.hidden) return;
     pal.root.hidden = true;
+    modalBackground(false);
     if (palReturn && palReturn.focus && doc.contains(palReturn)) palReturn.focus();
   }
 
@@ -384,6 +433,7 @@
     var res = searchResults(q);
     pal.opts = res;
     pal.sel = 0;
+    pal.root.querySelector('.palette-status').textContent = res.length ? res.length + ' results' : 'No results';
     if (!res.length) {
       pal.list.innerHTML = '<li class="palette-none" role="presentation">' +
         (state.content ? 'Nothing matches “' + R.esc(q.trim()) + '”.' : 'Search is still loading.') + '</li>';
@@ -418,7 +468,7 @@
   function choosePalette(i) {
     var o = pal.opts[i];
     if (!o) return;
-    pal.root.hidden = true;
+    closePalette();
     palReturn = null;
     navigate(o.url);
   }
@@ -447,10 +497,12 @@
     img.alt = inner ? inner.alt : '';
     viewer.hidden = false;
     viewer.querySelector('button').focus();
+    modalBackground(true);
   }
   function closeViewer() {
     if (!viewer || viewer.hidden) return;
     viewer.hidden = true;
+    modalBackground(false);
     if (viewerReturn && doc.contains(viewerReturn)) viewerReturn.focus();
   }
   function stepViewer(d) {
@@ -561,7 +613,8 @@
     }
     if (pal && !pal.root.hidden) return;
     if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openPalette(); return; }
-    if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || e.isComposing || e.repeat) return;
+    if (lsGet('ar-shortcuts') === '0') return;
     if (e.key === '/') { e.preventDefault(); openPalette(); return; }
     var n = '1234'.indexOf(e.key);
     if (n >= 0 && !e.shiftKey && state.content) { navigate(R.SECTIONS[n].path); return; }
