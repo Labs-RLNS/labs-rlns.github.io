@@ -1,14 +1,14 @@
 {
  "version": 1,
- "updated": "2026-10-22T05:59:50.587Z",
+ "updated": "2026-10-22T06:02:37.844Z",
  "site": {
   "name": "RLNS",
   "email": "ajrolens@rocketmail.com",
   "theme": "night",
   "intros": {
-   "projects": "",
-   "creatives": "",
-   "questions": ""
+   "projects": "Objective",
+   "creatives": "Subjective",
+   "questions": "Philospohical"
   },
   "assetVersion": "1.0.2",
   "url": "https://labs-rlns.github.io"
