@@ -314,18 +314,28 @@ body::after {
 }
 .home-nav a {
   position: relative;
+  display: inline-grid;
+  justify-items: center;
+  align-content: start;
   padding: 8px 2px;
   color: var(--text-2);
   text-decoration: none;
   transition: color 0.2s;
 }
 .home-nav a:hover,
-.home-nav a:focus-visible {
-  color: var(--text);
+.home-nav a:focus-visible { color: var(--text); }
+.home-nav a:hover .home-label,
+.home-nav a:focus-visible .home-label {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.32em;
   text-decoration-color: var(--accent-line);
+}
+/* The section's own short intro, as a subtitle under its link. */
+.home-intro {
+  margin-top: 5px;
+  font: italic 380 0.8em/1.25 var(--serif);
+  color: var(--text-2);
 }
 .home-new {
   position: absolute;
@@ -375,6 +385,8 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
 .app {
   display: grid;
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  /* Rows keep their natural height: on a short page, stretching them pulled the phone header apart. */
+  align-content: start;
   min-height: 100vh;
   min-height: 100dvh;
 }
@@ -784,6 +796,41 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
 .pager-label { font: 500 0.75rem/1 var(--sans); color: var(--text-3); }
 .pager-title { font: 400 1.125rem/1.3 var(--serif); }
 
+/* "More in <field>": somewhere to go next */
+.related { margin-top: 56px; }
+.related-title { margin: 0 0 12px; font: 500 0.8125rem/1 var(--sans); color: var(--text-3); }
+.related-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line-soft); }
+.related-link {
+  display: grid;
+  gap: 5px;
+  padding: 15px 4px;
+  border-bottom: 1px solid var(--line-soft);
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 0.15s;
+}
+.related-link:hover { background: var(--raise); }
+.related-name { font: 400 1.1875rem/1.35 var(--serif); overflow-wrap: anywhere; }
+.related-link.is-question .related-name { font-style: italic; font-weight: 380; }
+.related-link:hover .related-name { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.2em; text-decoration-color: var(--accent-line); }
+.related-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 500 0.75rem/1.4 var(--sans); color: var(--text-3); }
+/* The related list's last rule already closes the section, so the pager doesn't draw another. */
+.related + .pager { margin-top: 30px; padding-top: 0; border-top: 0; }
+
+/* Cite: for papers, research and theories */
+.cite { margin-top: 44px; }
+.cite-ref {
+  margin: 0;
+  padding: 16px 18px;
+  border-left: 2px solid var(--accent);
+  background: var(--raise);
+  font: 400 1.0625rem/1.6 var(--serif);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.cite-ref i { color: var(--text); }
+.cite-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+
 /* creatives read like a page held up to the light */
 .item-creatives { margin-inline: auto; max-width: 40rem; }
 .item-creatives .item-title { font-size: clamp(2.2rem, 5vw, 3.8rem); }
@@ -837,7 +884,8 @@ html.js.seen .is-home .home-glow { animation-duration: 0.9s; animation-delay: 0s
 }
 .qpage-date { margin: 22px 0 0; font: 500 0.8125rem/1 var(--sans); color: var(--text-3); }
 .qpage-notes { margin-top: 40px; color: var(--text-2); }
-.qpage-actions { margin: 40px 0 0; }
+.qpage-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 40px 0 0; }
+.qpage .related { margin-top: 24px; }
 
 /* ------------------------------------------------------------ contact */
 
@@ -992,6 +1040,7 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
     -webkit-backdrop-filter: blur(14px);
     backdrop-filter: blur(14px);
     overflow: visible;
+    align-content: flex-start;
   }
   .rail-name { font-size: 1.1875rem; padding: 6px 0; }
   .rail-foot { order: 2; margin: 0 0 0 auto; padding: 0; display: block; }
@@ -1060,7 +1109,8 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
 }
 
 @media print {
-  .grain, body::after, .rail, .controls, .pager, .skip { display: none !important; }
+  .grain, body::after, .rail, .controls, .pager, .related, .skip, .cite-actions, .qpage-actions { display: none !important; }
+  .cite-ref { background: none; padding-left: 12px; }
   .app { display: block; }
   :root { --bg: #fff; --text: #000; --text-2: #333; --text-3: #555; }
   html.js img.develop { opacity: 1; filter: none; }

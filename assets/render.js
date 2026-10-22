@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var R = { VERSION: '1.0.2' };
+  var R = { VERSION: '1.1.0' };
 
   /* ------------------------------------------------------------------ basics */
 
@@ -22,6 +22,15 @@
 
   function arr(v) { return Array.isArray(v) ? v : []; }
   function str(v) { return typeof v === 'string' ? v : (v == null ? '' : String(v)); }
+
+  /* A short, stable fingerprint (FNV-1a). Names the generated link-preview cards. */
+  function hash(s) {
+    var h = 0x811c9dc5;
+    s = str(s);
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(36);
+  }
+  R.hash = hash;
 
   function slugify(s, max) {
     var out = str(s).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -372,6 +381,7 @@
       updated: str(c.updated),
       site: {
         name: str(site.name).trim() || 'Austin Rolens',
+        author: str(site.author).trim(),
         tagline: str(site.tagline).trim(),
         email: str(site.email).trim(),
         description: str(site.description).trim(),
@@ -430,6 +440,95 @@
       return true;
     });
   }
+
+  /* Up to three other items that share this one's field or themes (not the ones the pager already shows). */
+  function relatedTo(c, sec, it, skip) {
+    var tags = {};
+    it.tags.forEach(function (t) { tags[slugify(t)] = true; });
+    var cat = slugify(it.category), kind = slugify(it.kind);
+    var scored = [];
+    c[sec].forEach(function (o) {
+      if (o.slug === it.slug || skip[o.slug]) return;
+      var s = 0;
+      if (cat && slugify(o.category) === cat) s += 3;
+      o.tags.forEach(function (t) { if (tags[slugify(t)]) s += 1; });
+      if (kind && slugify(o.kind) === kind) s += 0.5;
+      if (s >= 1) scored.push({ o: o, s: s });
+    });
+    scored.sort(function (a, b) { return b.s - a.s || byDate(a.o, b.o); });
+    return scored.slice(0, 3).map(function (x) { return x.o; });
+  }
+  R.relatedTo = relatedTo;
+
+  /* ------------------------------------------------------------------ citations */
+
+  // Project types worth a "Cite" block, and the narrower set that are scholarly papers (for Google Scholar).
+  var CITABLE = /\b(papers?|research|theory|theories|essays?|articles?|preprints?|thesis|dissertations?|reports?)\b/i;
+  var SCHOLARLY = /\b(papers?|essays?|articles?|preprints?|thesis|dissertations?|reports?)\b/i;
+  R.isCitable = function (sec, it) { return sec === 'projects' && CITABLE.test(it.kind || ''); };
+  R.isScholarly = function (sec, it) { return sec === 'projects' && SCHOLARLY.test(it.kind || ''); };
+
+  function authorOf(c) { return c.site.author || c.site.name; }
+  R.authorOf = authorOf;
+
+  // "Austin J. Rolens" -> family "Rolens", given "Austin J."; a one-word name stays whole.
+  function splitName(n) {
+    var parts = str(n).trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 2) return { family: parts[0] || '', given: '' };
+    return { family: parts[parts.length - 1], given: parts.slice(0, -1).join(' ') };
+  }
+  R.splitName = splitName;
+
+  function bibEsc(s) { return str(s).replace(/[{}\\]/g, '').replace(/([&%$#_])/g, '\\$1'); }
+
+  /* An APA-style reference and a BibTeX entry for a project. */
+  R.citation = function (c, sec, it, base) {
+    var who = authorOf(c), p = splitName(who);
+    var apaName = p.given ? p.family + ', ' + p.given.split(/[\s-]+/).filter(Boolean).map(function (g) { return g.charAt(0).toUpperCase() + '.'; }).join(' ') : who;
+    var day = parseDay(it.date);
+    var year = day ? String(day.y) : '';
+    var url = (base || '') + itemHref(sec, it.slug);
+    var site = c.site.name && c.site.name.toLowerCase() !== who.toLowerCase() ? c.site.name : '';
+    var head = apaName + (/\.$/.test(apaName) ? '' : '.') + ' (' + (year || 'n.d.') + '). ';
+    var stop = /[.?!]$/.test(it.title) ? '' : '.';
+    var tail = (site ? ' ' + site + '.' : '') + ' ' + url;
+    var stem = slugify(it.title).split('-').filter(function (w) {
+      return w.length > 3 && !/^(what|when|where|which|while|about|there|their|would|could|should|does|with|from|that|this|into|than|then|have)$/.test(w);
+    })[0] || 'work';
+    var key = (slugify(p.family).replace(/-/g, '') || 'author') + year + stem;
+    var fields = [
+      ['author', p.given ? bibEsc(p.family) + ', ' + bibEsc(p.given) : '{' + bibEsc(who) + '}'],
+      ['title', '{' + bibEsc(it.title) + '}'],
+      year ? ['year', year] : null,
+      ['howpublished', '\\url{' + url + '}'],
+      site ? ['note', bibEsc(site)] : null
+    ].filter(Boolean);
+    return {
+      text: head + it.title + stop + tail,
+      html: esc(head) + '<i>' + esc(it.title) + '</i>' + esc(stop + tail),
+      bibtex: '@misc{' + key + ',\n' + fields.map(function (f) { return '  ' + f[0] + ' = {' + f[1] + '}'; }).join(',\n') + '\n}'
+    };
+  };
+
+  /* ------------------------------------------------------------------ link-preview cards */
+
+  // Pages without their own image get a generated 1200x630 card (made by the Control Panel when publishing).
+  // The file name changes whenever what's on the card changes, so old cards are replaced, not cached.
+  var CARD_VERSION = 'card-1';
+  R.needsCard = function (sec, it) { return sec === 'questions' || !it.cover; };
+  R.cardPath = function (c, sec, it) {
+    var key = [CARD_VERSION, c.site.name, sec, it.title, it.category, sec === 'projects' ? it.kind : ''].join('\n');
+    return 'assets/cards/' + sec.charAt(0) + '-' + it.slug.slice(0, 60) + '-' + hash(key) + '.jpg';
+  };
+  R.cardsFor = function (content) {
+    var c = R.normalize(content), out = [];
+    ['projects', 'creatives', 'questions'].forEach(function (sec) {
+      c[sec].forEach(function (it) {
+        if (R.needsCard(sec, it)) out.push({ path: R.cardPath(c, sec, it), section: sec, label: SEC[sec].label, title: it.title, category: it.category, kind: it.kind, site: c.site.name });
+      });
+    });
+    return out;
+  };
 
   /* ------------------------------------------------------------------ routes */
 
@@ -500,7 +599,8 @@
     file: '<path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4"/>',
     out: '<path d="M13.5 5.5h5v5"/><path d="m18.5 5.5-8 8"/><path d="M16.5 13.5v5h-11v-11h5"/>',
     shuffle: '<path d="M4.5 7.5h3.2c2.6 0 3.7 2 4.8 4.5s2.2 4.5 4.8 4.5h2.2"/><path d="m17 14 2.5 2.5L17 19"/><path d="M4.5 16.5h3.2c1.2 0 2.1-.4 2.8-1.1M14 8.6c.7-.7 1.6-1.1 2.8-1.1h2.2"/><path d="m17 5 2.5 2.5L17 10"/>',
-    mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/><path d="m4 7 8 6 8-6"/>'
+    mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="1.5"/><path d="m4 7 8 6 8-6"/>',
+    share: '<path d="M12 14.5v-10"/><path d="m8 8.5 4-4 4 4"/><path d="M6.5 11.5v8h11v-8"/>'
   };
   function icon(name, label) {
     return '<svg class="icon" viewBox="0 0 24 24" ' + (label ? 'role="img" aria-label="' + esc(label) + '"' : 'aria-hidden="true"') +
@@ -785,6 +885,17 @@
 
     var tags = it.tags.length ? '<p class="themes"><span class="themes-label">Themes</span>' + tagLinks(sec, it.tags) + '</p>' : '';
 
+    var cite = '';
+    if (R.isCitable(sec, it)) {
+      var ref = R.citation(c, sec, it, c.site.url);
+      cite = '<section class="cite" aria-labelledby="cite-title"><h2 class="attach-title" id="cite-title">Cite this</h2>' +
+        '<p class="cite-ref">' + ref.html + '</p>' +
+        '<p class="cite-actions">' +
+        '<button type="button" class="btn" data-action="copy" data-copy="' + esc(ref.text) + '" hidden>' + icon('copy') + '<span>Copy citation</span></button>' +
+        '<button type="button" class="btn" data-action="copy" data-copy="' + esc(ref.bibtex) + '" hidden>' + icon('copy') + '<span>Copy BibTeX</span></button>' +
+        '</p></section>';
+    }
+
     return '<article class="item item-' + sec + '"' + attrs(it) + '>' +
       '<a class="crumb" href="' + s.path + '">' + icon('back') + esc(s.label) + '</a>' +
       '<header class="item-head"><h1 class="item-title" tabindex="-1">' + esc(it.title) + '</h1>' +
@@ -792,8 +903,26 @@
       (facts.length ? '<dl class="facts">' + facts.map(function (f) { return '<div><dt>' + esc(f[0]) + '</dt><dd>' + f[1] + '</dd></div>'; }).join('') + '</dl>' : '') +
       '</header>' + cover +
       (it.body ? '<div class="md item-body">' + md(it.body) + '</div>' : '') +
-      gallery + files + links + tags + pagerHTML(sec, list, idx) +
+      gallery + files + links + cite + tags + relatedHTML(c, sec, list, idx) + pagerHTML(sec, list, idx) +
       '</article>';
+  }
+
+  /* "More in <field>": a few nearby items, so a visitor always has somewhere to go next. */
+  function relatedHTML(c, sec, list, idx) {
+    var it = list[idx], skip = {};
+    if (idx > 0) skip[list[idx - 1].slug] = true;
+    if (idx < list.length - 1) skip[list[idx + 1].slug] = true;
+    var rel = relatedTo(c, sec, it, skip);
+    if (!rel.length) return '';
+    var same = !!it.category && rel.every(function (o) { return slugify(o.category) === slugify(it.category); });
+    var title = sec === 'questions' ? (same ? 'More questions in ' + it.category : 'Related questions') : (same ? 'More in ' + it.category : 'Related');
+    return '<section class="related" aria-labelledby="related-title"><h2 class="related-title" id="related-title">' + esc(title) + '</h2>' +
+      '<ul class="related-list">' + rel.map(function (o) {
+        var meta = sec === 'questions' ? [fmtDay(o.date)] : [sec === 'projects' ? o.kind : '', same ? '' : o.category, fmtDay(o.date, 'year')];
+        return '<li><a class="related-link' + (sec === 'questions' ? ' is-question' : '') + '" href="' + itemHref(sec, o.slug) + '">' +
+          '<span class="related-name">' + esc(o.title) + '</span>' +
+          (metaSpans(meta) ? '<span class="related-meta">' + metaSpans(meta) + '</span>' : '') + '</a></li>';
+      }).join('') + '</ul></section>';
   }
 
   function viewQuestion(c, slug) {
@@ -810,8 +939,11 @@
       (it.date ? '<p class="qpage-date">Asked ' + esc(fmtDay(it.date)) + '</p>' : '') +
       (it.body ? '<div class="md qpage-notes">' + md(it.body) + '</div>' : '') +
       (it.tags.length ? '<p class="themes"><span class="themes-label">Themes</span>' + tagLinks('questions', it.tags) + '</p>' : '') +
-      (list.length > 1 ? '<p class="qpage-actions"><button type="button" class="btn" data-action="random-question" hidden>' + icon('shuffle') + 'Show me another</button></p>' : '') +
-      '</div>' + pagerHTML('questions', list, idx) + '</article>';
+      '<p class="qpage-actions">' +
+      '<button type="button" class="btn" data-action="share" data-share="' + esc(itemHref('questions', it.slug)) + '" data-share-text="' + esc(it.title) + '" hidden>' + icon('share') + '<span>Share</span></button>' +
+      (list.length > 1 ? '<button type="button" class="btn" data-action="random-question" hidden>' + icon('shuffle') + 'Show me another</button>' : '') +
+      '</p>' +
+      '</div>' + relatedHTML(c, 'questions', list, idx) + pagerHTML('questions', list, idx) + '</article>';
   }
 
   function viewContact(c) {
@@ -831,13 +963,22 @@
       '<p class="notfound-links">' + SECTIONS.map(function (s) { return '<a href="' + s.path + '">' + esc(s.label) + '</a>'; }).join('') + '</p></section>';
   }
 
+  /* A section's intro also sits under its link on the home page, when it's short enough to read as a subtitle. */
+  function homeIntro(c, key) {
+    var t = str(c.site.intros && c.site.intros[key]).trim();
+    if (!t || t.length > 32 || t.split(/\s+/).length > 4) return '';
+    return '<span class="sr-only">, </span><span class="home-intro">' + esc(t) + '</span>';
+  }
+  R.homeIntro = homeIntro;
+
   function homeHTML(c) {
     return '<main class="home" id="main">' +
       '<div class="home-glow" aria-hidden="true"></div>' +
       '<h1 class="home-name">' + esc(c.site.name) + '</h1>' +
       (c.site.tagline ? '<p class="home-line">' + esc(c.site.tagline) + '</p>' : '') +
       '<nav class="home-nav" aria-label="Sections">' + SECTIONS.map(function (s) {
-        return '<a href="' + s.path + '" data-section="' + s.key + '">' + esc(s.label) + '<span class="home-new" hidden></span></a>';
+        return '<a href="' + s.path + '" data-section="' + s.key + '"><span class="home-label">' + esc(s.label) + '</span>' +
+          homeIntro(c, s.key) + '<span class="home-new" hidden></span></a>';
       }).join('') + '</nav>' +
       '</main>' + controlsHTML('home');
   }
@@ -858,7 +999,11 @@
     }
     if (route.name === 'section') {
       v.title = SEC[route.section].label + ' — ' + name;
-      if (c.site.intros[route.section]) v.description = c.site.intros[route.section];
+      // A one-word intro ("Objective") reads well on the page but makes a thin search result,
+      // so short intros give way to a plain description of the section.
+      var intro = str(c.site.intros[route.section]).trim();
+      var dflt = DEFAULT_INTROS[route.section];
+      v.description = intro.split(/\s+/).length >= 5 ? intro : SEC[route.section].label + ' by ' + name + ': ' + dflt.charAt(0).toLowerCase() + dflt.slice(1);
       main = viewSection(c, route.section, route.query || {});
     } else if (route.name === 'item') {
       main = viewItem(c, route.section, route.slug);
@@ -866,7 +1011,9 @@
       if (main && it) {
         v.title = it.title + ' — ' + name;
         v.description = it.summary || clip(plain(it.body), 180) || desc;
-        if (it.cover) v.image = it.cover.src;
+        v.item = it;
+        if (it.cover) { v.image = it.cover.src; v.imageSize = it.cover.w && it.cover.h ? [it.cover.w, it.cover.h] : null; }
+        else { v.image = '/' + R.cardPath(c, route.section, it); v.imageSize = [1200, 630]; }
         if (route.section === 'creatives') v.bodyClass = 'is-reading';
       }
     } else if (route.name === 'question') {
@@ -875,6 +1022,9 @@
       if (main && qi) {
         v.title = clip(qi.title, 70) + ' — ' + name;
         v.description = qi.body ? clip(plain(qi.body), 180) : ('An open question from ' + name + '.');
+        v.item = qi;
+        v.image = '/' + R.cardPath(c, 'questions', qi);
+        v.imageSize = [1200, 630];
         v.bodyClass = 'is-reading';
       }
     } else if (route.name === 'contact') {
@@ -905,15 +1055,78 @@
     return base ? base + (path.charAt(0) === '/' ? '' : '/') + path : '';
   }
 
+  R.themeColor = function (theme) { return theme === 'paper' ? '#e6e3de' : '#0e0a0b'; };
+
+  function jsonLd(obj) {
+    // "<" is escaped so nothing in the content can close the script element.
+    return '<script type="application/ld+json">' + JSON.stringify(obj).replace(/</g, '\\u003c') + '</script>\n';
+  }
+
+  /* Structured data for search engines: what the site is, where a page sits, and what an item is. */
+  function structuredData(c, route, v, base) {
+    if (!base || v.status === 404) return '';
+    var site = { '@type': 'WebSite', '@id': base + '/#site', name: c.site.name, url: base + '/' };
+    if (route.name === 'home') {
+      if (v.description) site.description = v.description;
+      return jsonLd(Object.assign({ '@context': 'https://schema.org' }, site));
+    }
+    var crumbs = [{ name: c.site.name, url: base + '/' }];
+    var sec = route.section && SEC[route.section];
+    if (sec) crumbs.push({ name: sec.label, url: base + sec.path });
+    var graph = [];
+    var it = v.item;
+    if (it && (route.name === 'item' || route.name === 'question')) {
+      var url = base + itemHref(route.section, it.slug);
+      crumbs.push({ name: clip(it.title, 110), url: url });
+      var scholarly = R.isScholarly(route.section, it);
+      var work = {
+        '@type': scholarly ? 'ScholarlyArticle' : 'CreativeWork',
+        '@id': url + '#work',
+        name: it.title,
+        url: url,
+        author: { '@type': 'Person', name: authorOf(c) },
+        isPartOf: { '@id': base + '/#site' }
+      };
+      if (scholarly) work.headline = clip(it.title, 110);
+      if (v.description) work.description = v.description;
+      if (it.date) work.datePublished = it.date;
+      if (it.updated && !isNaN(Date.parse(it.updated))) work.dateModified = new Date(it.updated).toISOString();
+      if (v.image) work.image = absUrl(base, v.image);
+      if (it.category) work.genre = it.category;
+      var words = [it.category, it.kind].concat(it.tags).filter(Boolean);
+      if (words.length) work.keywords = words.join(', ');
+      graph.push(work);
+    }
+    graph.push({
+      '@type': 'BreadcrumbList',
+      itemListElement: crumbs.map(function (cr, i) { return { '@type': 'ListItem', position: i + 1, name: cr.name, item: cr.url }; })
+    });
+    graph.push(site);
+    return jsonLd({ '@context': 'https://schema.org', '@graph': graph });
+  }
+
+  /* Google Scholar's citation tags, on paper-like projects only. */
+  function scholarMeta(c, route, v) {
+    var it = v.item;
+    if (!it || route.name !== 'item' || !R.isScholarly(route.section, it)) return '';
+    var day = parseDay(it.date);
+    if (!day) return '';
+    var p = splitName(authorOf(c));
+    return '<meta name="citation_title" content="' + esc(it.title) + '">\n' +
+      '<meta name="citation_author" content="' + esc(p.given ? p.family + ', ' + p.given : p.family) + '">\n' +
+      '<meta name="citation_publication_date" content="' + day.y + '/' + day.m + '/' + day.d + '">\n';
+  }
+
   R.headMeta = function (c, route, v) {
     var base = c.site.url;
     var path = R.pathOf(route);
     var image = absUrl(base, v.image || '/assets/share.png');
+    var size = v.image ? v.imageSize : [1200, 630];
     var out = '<meta charset="utf-8">\n' +
       '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n' +
       '<title>' + esc(v.title) + '</title>\n' +
       '<meta name="description" content="' + esc(v.description) + '">\n' +
-      '<meta name="theme-color" content="#0e0a0b">\n' +
+      '<meta name="theme-color" content="' + R.themeColor(c.site.theme) + '">\n' +
       '<meta name="color-scheme" content="dark light">\n';
     if (base && v.status !== 404) out += '<link rel="canonical" href="' + esc(base + path) + '">\n';
     out += '<meta property="og:site_name" content="' + esc(c.site.name) + '">\n' +
@@ -921,7 +1134,10 @@
       '<meta property="og:description" content="' + esc(v.description) + '">\n' +
       '<meta property="og:type" content="' + (route.name === 'item' || route.name === 'question' ? 'article' : 'website') + '">\n' +
       (base ? '<meta property="og:url" content="' + esc(base + path) + '">\n' : '') +
-      (image ? '<meta property="og:image" content="' + esc(image) + '">\n<meta name="twitter:card" content="summary_large_image">\n' : '');
+      (image ? '<meta property="og:image" content="' + esc(image) + '">\n' +
+        (size ? '<meta property="og:image:width" content="' + size[0] + '">\n<meta property="og:image:height" content="' + size[1] + '">\n' : '') +
+        '<meta name="twitter:card" content="summary_large_image">\n' : '');
+    out += scholarMeta(c, route, v) + structuredData(c, route, v, base);
     return out;
   };
 
@@ -936,6 +1152,7 @@
       '<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">\n' +
       '<link rel="icon" href="/favicon.ico" sizes="32x32">\n' +
       '<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">\n' +
+      '<link rel="manifest" href="/manifest.webmanifest">\n' +
       '<link rel="alternate" type="application/atom+xml" title="' + esc(c.site.name) + '" href="/feed.xml">\n' +
       '<link rel="preload" href="/assets/fonts/piazzolla.woff2" as="font" type="font/woff2" crossorigin>\n' +
       '<link rel="preload" href="/assets/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>\n' +

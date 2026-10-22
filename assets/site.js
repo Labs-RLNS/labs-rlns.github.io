@@ -25,11 +25,14 @@
   /* ---------------------------------------------------------------- theme */
 
   function theme() { return html.getAttribute('data-theme') === 'paper' ? 'paper' : 'night'; }
+  function themeColor() {
+    var meta = doc.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', R.themeColor(theme()));
+  }
   function setTheme(t) {
     html.setAttribute('data-theme', t);
     lsSet('ar-theme', t);
-    var meta = doc.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', t === 'paper' ? '#e6e3de' : '#0e0a0b');
+    themeColor();
     syncControls();
   }
 
@@ -197,7 +200,13 @@
       b.hidden = !(c && c.questions.length > 1);
     });
     doc.querySelectorAll('[data-action="copy"]').forEach(function (b) {
-      b.hidden = !(navigator.clipboard && window.isSecureContext);
+      b.hidden = !canCopy();
+    });
+    doc.querySelectorAll('[data-action="share"]').forEach(function (b) {
+      var native = canNativeShare();
+      b.hidden = !(native || canCopy());
+      var label = b.querySelector('span');
+      if (label) label.textContent = native ? 'Share' : 'Copy link';
     });
     if (c) {
       doc.querySelectorAll('.rail [data-count]').forEach(function (el) {
@@ -239,14 +248,37 @@
     navigate(R.itemHref('questions', pick.slug));
   }
 
+  function canCopy() { return !!(navigator.clipboard && window.isSecureContext); }
+
+  function flash(btn, text) {
+    var label = btn.querySelector('span');
+    if (!label) return;
+    if (!btn.hasAttribute('data-label')) btn.setAttribute('data-label', label.textContent);
+    label.textContent = text;
+    clearTimeout(btn._flash);
+    btn._flash = setTimeout(function () { label.textContent = btn.getAttribute('data-label'); }, 1800);
+  }
+
   function copyText(btn) {
     var text = btn.getAttribute('data-copy');
     navigator.clipboard.writeText(text).then(function () {
-      var label = btn.querySelector('span');
-      var before = label.textContent;
-      label.textContent = 'Copied';
-      setTimeout(function () { label.textContent = before; }, 1800);
-    }, function () { /* clipboard refused: the address is still on screen */ });
+      flash(btn, 'Copied');
+    }, function () { /* clipboard refused: the text is still on screen */ });
+  }
+
+  /* Phones and tablets get the system share sheet; elsewhere the button copies the link. */
+  function canNativeShare() {
+    return !!(navigator.share && window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  }
+  function shareLink(btn) {
+    var c = state.content;
+    var url = ((c && c.site.url) || location.origin) + (btn.getAttribute('data-share') || location.pathname);
+    if (canNativeShare()) {
+      navigator.share({ title: btn.getAttribute('data-share-text') || doc.title, url: url }).catch(function () { /* closed the sheet */ });
+      return;
+    }
+    if (!canCopy()) return;
+    navigator.clipboard.writeText(url).then(function () { flash(btn, 'Link copied'); }, function () { /* clipboard refused */ });
   }
 
   function onAction(e) {
@@ -258,6 +290,7 @@
     else if (a === 'sound') toggleSound();
     else if (a === 'random-question') randomQuestion();
     else if (a === 'copy') copyText(b);
+    else if (a === 'share') shareLink(b);
   }
 
   /* ---------------------------------------------------------------- search */
@@ -561,6 +594,7 @@
     window.addEventListener('popstate', onPopState);
     window.addEventListener('scroll', onScroll, { passive: true });
     armSound();
+    themeColor();
     enhance();
 
     loadContent().then(function (raw) {
