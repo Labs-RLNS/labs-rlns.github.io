@@ -13,7 +13,7 @@
   var doc = document;
   var html = doc.documentElement;
   var PREVIEW = window.__SITE_PREVIEW__ || null;
-  var state = { content: null, route: null, index: null, since: '' };
+  var state = { content: null, route: null, index: null, since: '', loading: false, loadFailed: false };
 
   /* ---------------------------------------------------------------- storage */
 
@@ -90,6 +90,12 @@
     return { pathname: u.pathname, search: u.search, hash: u.hash };
   }
 
+  function fragmentTarget(hash) {
+    var id = hash.slice(1);
+    try { id = decodeURIComponent(id); } catch (e) { /* Treat a malformed escape as a literal ID. */ }
+    return doc.getElementById(id);
+  }
+
   function apply(route) {
     var v = R.render(state.content, route);
     doc.getElementById('view').innerHTML = v.html;
@@ -122,7 +128,7 @@
       }
       if (typeof opts.scroll === 'number') window.scrollTo(0, opts.scroll);
       else if (opts.hash) {
-        var el = doc.getElementById(decodeURIComponent(opts.hash.slice(1)));
+        var el = fragmentTarget(opts.hash);
         if (el) el.scrollIntoView(); else window.scrollTo(0, 0);
       }
     };
@@ -177,7 +183,7 @@
     // Only the #part changed (a heading's link, "Skip to content"): the page stays as it is.
     if (state.path && location.pathname + location.search === state.path) {
       if (location.hash) {
-        var target = doc.getElementById(decodeURIComponent(location.hash.slice(1)));
+        var target = fragmentTarget(location.hash);
         if (target) target.scrollIntoView();
       }
       return;
@@ -426,6 +432,7 @@
     syncControls();
     pal.input.focus();
     modalBackground(true);
+    if (state.loadFailed) refreshContent();
   }
 
   function closePalette() {
@@ -467,10 +474,11 @@
     var res = searchResults(q);
     pal.opts = res;
     pal.sel = 0;
-    pal.root.querySelector('.palette-status').textContent = res.length ? res.length + ' results' : 'No results';
+    var unavailable = state.loadFailed ? 'Search couldn’t load. Check your connection, then close and reopen Search to try again. You can still browse the sections.' : 'Search is loading.';
+    pal.root.querySelector('.palette-status').textContent = !state.content ? unavailable : (res.length ? res.length + ' results' : 'No results');
     if (!res.length) {
       pal.list.innerHTML = '<li class="palette-none" role="presentation">' +
-        (state.content ? 'Nothing matches “' + R.esc(q.trim()) + '”.' : 'Search is still loading.') + '</li>';
+        (state.content ? 'Nothing matches “' + R.esc(q.trim()) + '”.' : unavailable) + '</li>';
       pal.input.removeAttribute('aria-activedescendant');
       return;
     }
@@ -653,6 +661,8 @@
     var n = '12345'.indexOf(e.key);
     if (n >= 0 && !e.shiftKey && state.content) { navigate(R.SECTIONS[n].path); return; }
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.shiftKey) {
+      // Native controls and horizontally scrolling reading regions own their arrow keys.
+      if (e.target.closest && e.target.closest('a, button, summary, audio, video, iframe, pre, [role="region"], [role="slider"], [role="tablist"]')) return;
       var rel = e.key === 'ArrowLeft' ? 'newer' : 'older';
       var link = doc.querySelector('#main .pager [data-rel="' + rel + '"]');
       if (link) { e.preventDefault(); link.click(); }
@@ -663,9 +673,37 @@
 
   function loadContent() {
     if (PREVIEW) return Promise.resolve(PREVIEW.content);
-    return fetch('/content.json', { cache: 'no-cache' })
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 12000);
+    return fetch('/content.json', { cache: 'no-cache', signal: controller.signal })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .catch(function () { return null; });
+      .catch(function () { return null; })
+      .finally(function () { clearTimeout(timeout); });
+  }
+
+  function refreshContent() {
+    if (state.loading || state.content) return;
+    state.loading = true;
+    state.loadFailed = false;
+    if (pal && !pal.root.hidden) fillPalette(pal.input.value);
+    loadContent().then(function (raw) {
+      if (!raw) { state.loadFailed = true; return; }
+      state.content = R.normalize(raw);
+      state.index = null;
+      var p = parsePath(PREVIEW ? (PREVIEW.path || '/') : currentPath());
+      var route = R.route(p.pathname, p.search);
+      var main = doc.getElementById('main');
+      var stale = !main || PREVIEW || (main.getAttribute('data-route') === 'notfound' && route.name !== 'notfound');
+      if (PREVIEW) state.previewPath = p.pathname + p.search;
+      if (stale) renderRoute(route, { focus: false, instant: true, scroll: PREVIEW ? 0 : undefined });
+      else { state.route = route; state.path = currentPath(); enhance(); }
+    }).catch(function () {
+      state.content = null;
+      state.loadFailed = true;
+    }).finally(function () {
+      state.loading = false;
+      if (pal && !pal.root.hidden) fillPalette(pal.input.value);
+    });
   }
 
   function start() {
@@ -685,18 +723,7 @@
     themeColor();
     enhance();
 
-    loadContent().then(function (raw) {
-      if (!raw) return;
-      state.content = R.normalize(raw);
-      state.index = null;
-      var p = parsePath(PREVIEW ? (PREVIEW.path || '/') : currentPath());
-      var route = R.route(p.pathname, p.search);
-      var main = doc.getElementById('main');
-      var stale = !main || PREVIEW || (main.getAttribute('data-route') === 'notfound' && route.name !== 'notfound');
-      if (PREVIEW) state.previewPath = p.pathname + p.search;
-      if (stale) renderRoute(route, { focus: false, instant: true, scroll: PREVIEW ? 0 : undefined });
-      else { state.route = route; state.path = currentPath(); enhance(); }
-    });
+    refreshContent();
   }
 
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', start);

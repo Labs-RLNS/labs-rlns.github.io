@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var R = { VERSION: '1.3.0' };
+  var R = { VERSION: '1.3.1' };
 
   /* ------------------------------------------------------------------ basics */
 

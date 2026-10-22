@@ -1018,7 +1018,8 @@ a.rec-visual { cursor: zoom-in; }
   opacity: 0;
   transition: opacity 0.15s;
 }
-.md :is(h2, h3, h4):hover .h-anchor { opacity: 1; }
+.md :is(h2, h3, h4):hover .h-anchor,
+.md .h-anchor:focus-visible { opacity: 1; }
 .md :is(h2, h3, h4):target { scroll-margin-top: 24px; }
 .md-table {
   margin: 1.6em 0;
@@ -1318,11 +1319,33 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
 }
 
 @media print {
-  .grain, body::after, .rail, .controls, .pager, .related, .skip, .cite-actions, .qpage-actions, .h-anchor { display: none !important; }
+  @page { margin: 18mm; }
+  *, *::before, *::after { animation: none !important; transition: none !important; box-shadow: none !important; text-shadow: none !important; }
+  .grain, body::after, .home-glow, .rail, .controls, .pager, .related, .skip, .crumb, .filters, .cite-actions, .qpage-actions, .h-anchor, .palette, .viewer, .embed-video, .embed-audio, .embed-file-video { display: none !important; }
   .rec-find a::after { content: " (" attr(href) ")"; font-size: 0.8em; }
-  .plate { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .plate { --plate: #fff; --plate-glow: transparent; --plate-ink: #000; --plate-ink-2: #333; --plate-edge: #777; }
   .cite-ref { background: none; padding-left: 12px; }
   .app { display: block; }
-  :root { --bg: #fff; --text: #000; --text-2: #333; --text-3: #555; }
+  :root, :root[data-theme] {
+    --bg: #fff; --bg-2: #fff; --raise: #fff; --raise-2: #fff;
+    --text: #000; --text-2: #333; --text-3: #555;
+    --line: #999; --line-soft: #bbb; --accent-line: #333;
+    color-scheme: light;
+  }
+  html, body { min-height: 0; padding: 0; overflow: visible; }
+  .main { padding: 0; }
+  .item, .md, .qpage, .sec-head { max-width: none; }
+  .qpage { min-height: 0; }
+  .qpage-body { display: block; padding: 0; }
+  .item-title, .qpage-text, .sec-title { font-size: 26pt; }
+  .md { font-size: 11pt; line-height: 1.5; }
+  h1, h2, h3, h4, figcaption { break-after: avoid; }
+  p, li { orphans: 3; widows: 3; }
+  figure, tr, .cite { break-inside: avoid; }
+  .md-table, .md pre { overflow: visible; }
+  .md pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .md th { white-space: normal; }
+  .md td, .md th { overflow-wrap: anywhere; }
+  .md table { table-layout: fixed; }
   html.js img.develop { opacity: 1; filter: none; }
 }
