@@ -55,7 +55,7 @@
   function markNew() {
     var c = state.content;
     if (!c || !state.since) return;
-    ['projects', 'creatives', 'questions'].forEach(function (k) {
+    R.LISTS.forEach(function (k) {
       var n = c[k].filter(isNew).length;
       doc.querySelectorAll('[data-section="' + k + '"] .rail-new').forEach(function (el) {
         el.hidden = !n;
@@ -73,7 +73,7 @@
         var label = doc.createElement('span');
         label.className = 'sr-only';
         label.textContent = ' (new since your last visit)';
-        var title = el.querySelector('.entry-title, .tile-title, .q-text');
+        var title = el.querySelector('.entry-title, .tile-title, .q-text, .rec-title');
         if (title) title.appendChild(label);
       }
     });
@@ -104,6 +104,7 @@
     doc.head.querySelectorAll(selector).forEach(function (el) { el.remove(); });
     metadata.content.querySelectorAll(selector).forEach(function (el) { doc.head.appendChild(el); });
     state.route = route;
+    state.path = currentPath();
     enhance();
     return v;
   }
@@ -173,6 +174,14 @@
   function onPopState(e) {
     closePalette();
     closeViewer();
+    // Only the #part changed (a heading's link, "Skip to content"): the page stays as it is.
+    if (state.path && location.pathname + location.search === state.path) {
+      if (location.hash) {
+        var target = doc.getElementById(decodeURIComponent(location.hash.slice(1)));
+        if (target) target.scrollIntoView();
+      }
+      return;
+    }
     if (!state.content) { location.reload(); return; }
     var route = R.route(location.pathname, location.search);
     renderRoute(route, { scroll: (e.state && e.state.scroll) || 0, instant: true });
@@ -228,6 +237,31 @@
     }
     syncControls();
     markNew();
+    fitTabs();
+  }
+
+  /* Phones: the section tabs scroll sideways when they don't all fit. The current one is kept in view,
+     and the edges fade where more tabs are waiting, so it's clear there is more to see. */
+  var tabsBound = null;
+  function fitTabs() {
+    var nav = doc.querySelector('.rail-nav');
+    if (!nav) return;
+    var mark = function () {
+      var over = nav.scrollWidth - nav.clientWidth > 2;
+      nav.classList.toggle('is-scrollable', over);
+      nav.classList.toggle('more-before', over && nav.scrollLeft > 2);
+      nav.classList.toggle('more-after', over && nav.scrollLeft < nav.scrollWidth - nav.clientWidth - 2);
+    };
+    var on = nav.querySelector('.rail-link.is-on');
+    if (on && nav.scrollWidth > nav.clientWidth) {
+      var l = on.offsetLeft - nav.offsetLeft, r = l + on.offsetWidth;
+      if (l < nav.scrollLeft || r > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = Math.max(0, l - 24);
+    }
+    mark();
+    if (tabsBound !== nav) {
+      tabsBound = nav;
+      nav.addEventListener('scroll', mark, { passive: true });
+    }
   }
 
   function syncControls() {
@@ -347,13 +381,13 @@
     root.setAttribute('aria-label', 'Search');
     root.innerHTML = '<div class="palette-box">' +
       '<div class="palette-field">' + R.icon('search') +
-      '<input class="palette-input" type="text" placeholder="Search projects, creatives and questions" autocomplete="off" spellcheck="false" ' +
+      '<input class="palette-input" type="text" placeholder="Search everything" autocomplete="off" spellcheck="false" ' +
       'role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" aria-label="Search">' +
       '<button type="button" class="palette-close" aria-label="Close search">' + R.icon('close') + '</button></div>' +
       '<ul class="palette-list" id="palette-list" role="listbox" aria-label="Results" tabindex="-1"></ul>' +
       '<div class="palette-status sr-only" role="status" aria-live="polite"></div>' +
       '<div class="palette-foot"><span>↑ ↓ to move · Enter to open · Esc to close</span>' +
-      '<button type="button" class="ctl" data-action="shortcuts" aria-pressed="true" title="Turn / and 1–4 shortcuts on or off. Ctrl+K always opens search.">Single-key shortcuts: On</button></div>' +
+      '<button type="button" class="ctl" data-action="shortcuts" aria-pressed="true" title="Turn / and 1–5 shortcuts on or off. Ctrl+K always opens search.">Single-key shortcuts: On</button></div>' +
       '</div>';
     doc.body.appendChild(root);
     var input = root.querySelector('input');
@@ -424,7 +458,7 @@
       hits.push({ r: r, score: score });
     });
     hits.sort(function (a, b) { return b.score - a.score || (a.r.date < b.r.date ? 1 : -1); });
-    var order = { projects: 0, creatives: 1, questions: 2 };
+    var order = { projects: 0, creatives: 1, questions: 2, recommended: 3 };
     return hits.slice(0, 40).sort(function (a, b) { return order[a.r.section] - order[b.r.section] || b.score - a.score; })
       .map(function (h) { return { group: h.r.sectionLabel, title: h.r.title, sub: h.r.sub, url: h.r.url }; });
   }
@@ -616,7 +650,7 @@
     if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || e.isComposing || e.repeat) return;
     if (lsGet('ar-shortcuts') === '0') return;
     if (e.key === '/') { e.preventDefault(); openPalette(); return; }
-    var n = '1234'.indexOf(e.key);
+    var n = '12345'.indexOf(e.key);
     if (n >= 0 && !e.shiftKey && state.content) { navigate(R.SECTIONS[n].path); return; }
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.shiftKey) {
       var rel = e.key === 'ArrowLeft' ? 'newer' : 'older';
@@ -646,6 +680,7 @@
     doc.addEventListener('keydown', onKey);
     window.addEventListener('popstate', onPopState);
     window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', function () { fitTabs(); }, { passive: true });
     armSound();
     themeColor();
     enhance();
@@ -660,7 +695,7 @@
       var stale = !main || PREVIEW || (main.getAttribute('data-route') === 'notfound' && route.name !== 'notfound');
       if (PREVIEW) state.previewPath = p.pathname + p.search;
       if (stale) renderRoute(route, { focus: false, instant: true, scroll: PREVIEW ? 0 : undefined });
-      else { state.route = route; enhance(); }
+      else { state.route = route; state.path = currentPath(); enhance(); }
     });
   }
 

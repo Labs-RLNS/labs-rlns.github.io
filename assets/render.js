@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var R = { VERSION: '1.2.0' };
+  var R = { VERSION: '1.3.0' };
 
   /* ------------------------------------------------------------------ basics */
 
@@ -55,21 +55,27 @@
   }
   R.src = src;
 
+  // "short" is what a phone's tab bar shows; the full label is still what screen readers hear.
   var SECTIONS = [
     { key: 'projects', label: 'Projects', path: '/projects/', cat: 'Field', cats: 'Fields', kind: 'Type', noun: 'project' },
     { key: 'creatives', label: 'Creatives', path: '/creatives/', cat: 'Form', cats: 'Forms', kind: null, noun: 'piece' },
-    { key: 'questions', label: 'Questions to Ask', path: '/questions/', cat: 'Field', cats: 'Fields', kind: null, noun: 'question' },
+    { key: 'questions', label: 'Questions to Ask', short: 'Questions', path: '/questions/', cat: 'Field', cats: 'Fields', kind: null, noun: 'question' },
+    { key: 'recommended', label: 'Recommended', path: '/recommended/', cat: 'Field', cats: 'Fields', kind: 'Type', noun: 'recommendation' },
     { key: 'contact', label: 'Contact', path: '/contact/' }
   ];
   var SEC = {};
   SECTIONS.forEach(function (s) { SEC[s.key] = s; });
   R.SECTIONS = SECTIONS;
   R.SEC = SEC;
+  /* The sections that hold published work (everything but Contact), in site order. */
+  var LISTS = ['projects', 'creatives', 'questions', 'recommended'];
+  R.LISTS = LISTS;
 
   var DEFAULT_INTROS = {
     projects: 'Builds, research, theories and papers.',
     creatives: 'Poems, art, stories and games made to be felt.',
-    questions: 'Open questions nobody has answered yet, sorted by field.'
+    questions: 'Open questions nobody has answered yet, sorted by field.',
+    recommended: 'Books, films, talks and other work worth your time.'
   };
   R.DEFAULT_INTROS = DEFAULT_INTROS;
 
@@ -225,7 +231,61 @@
       (caption ? '<figcaption>' + inlineBasic(caption) + '</figcaption>' : '') + '</figure>';
   }
 
-  function md(text, depth) {
+  /* Tables, the GitHub way: a header row, a |---|:---:| line, then rows. */
+  var RE_TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+  function tableCells(line) {
+    var t = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+    var cells = [], cur = '', code = false;
+    for (var k = 0; k < t.length; k++) {
+      var ch = t.charAt(k);
+      if (ch === '\\' && t.charAt(k + 1) === '|') { cur += '|'; k++; continue; }
+      if (ch === '`') code = !code;
+      if (ch === '|' && !code) { cells.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+  function isTableStart(lines, i) {
+    // As on GitHub, the dashes line needs one cell per header cell; "a | b" over "---" stays text.
+    return /\|/.test(lines[i]) && i + 1 < lines.length && RE_TABLE_SEP.test(lines[i + 1]) &&
+      tableCells(lines[i + 1]).length === tableCells(lines[i]).length;
+  }
+  function tableHTML(lines, i) {
+    var head = tableCells(lines[i]);
+    var aligns = tableCells(lines[i + 1]).map(function (c) {
+      var l = /^:/.test(c), r = /:$/.test(c);
+      return l && r ? 'center' : r ? 'right' : '';
+    });
+    var n = head.length, rows = [], j = i + 2;
+    while (j < lines.length && /\S/.test(lines[j]) && /\|/.test(lines[j])) { rows.push(tableCells(lines[j])); j++; }
+    var cell = function (tag, text, k) {
+      return '<' + tag + (aligns[k] ? ' class="al-' + aligns[k] + '"' : '') + '>' + inline(text || '') + '</' + tag + '>';
+    };
+    var html = '<div class="md-table" tabindex="0" role="region" aria-label="Table"><table><thead><tr>' +
+      head.map(function (h, k) { return cell('th', h, k); }).join('') + '</tr></thead>' +
+      (rows.length ? '<tbody>' + rows.map(function (r) {
+        var out = '';
+        for (var k = 0; k < n; k++) out += cell('td', r[k], k);
+        return '<tr>' + out + '</tr>';
+      }).join('') + '</tbody>' : '') + '</table></div>';
+    return { html: html, next: j };
+  }
+
+  /* Headings get an id, so a section of a long write-up can be linked to directly.
+     Ids the page itself uses are avoided, and repeats are numbered. */
+  var RESERVED_IDS = /^(main|view|rail|announcer|palette-list|related-title|cite-title|contact-title|(y|g|q|pal|t)-.*)$/;
+  function headingId(text, ids) {
+    var base = slugify(plain(text), 60) || 'section';
+    if (RESERVED_IDS.test(base)) base = 'section-' + base;
+    var id = base, n = 2;
+    while (ids[id]) id = base + '-' + (n++);
+    ids[id] = true;
+    return id;
+  }
+
+  // ids: where heading ids are recorded, or null for text that shares a page with other text (no ids).
+  function md(text, depth, ids) {
     depth = depth || 0;
     var lines = str(text).replace(/\r\n?/g, '\n').split('\n');
     var out = [], i = 0;
@@ -245,15 +305,25 @@
       var hm = RE_HEADING.exec(line);
       if (hm) {
         var lvl = Math.min(Math.max(hm[1].length, 2), 4);
-        out.push('<h' + lvl + '>' + inline(hm[2]) + '</h' + lvl + '>');
+        if (ids) {
+          var hid = headingId(hm[2], ids);
+          out.push('<h' + lvl + ' id="' + esc(hid) + '">' + inline(hm[2]) +
+            '<a class="h-anchor" href="#' + esc(hid) + '" aria-hidden="true" tabindex="-1">#</a></h' + lvl + '>');
+        } else out.push('<h' + lvl + '>' + inline(hm[2]) + '</h' + lvl + '>');
         i++;
         continue;
       }
       if (RE_HR.test(line)) { out.push('<hr>'); i++; continue; }
+      if (isTableStart(lines, i)) {
+        var tb = tableHTML(lines, i);
+        out.push(tb.html);
+        i = tb.next;
+        continue;
+      }
       if (RE_QUOTE.test(line) && depth < 4) {
         var q = [];
         while (i < lines.length && RE_QUOTE.test(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
-        out.push('<blockquote>' + md(q.join('\n'), depth + 1) + '</blockquote>');
+        out.push('<blockquote>' + md(q.join('\n'), depth + 1, ids) + '</blockquote>');
         continue;
       }
       var lm = RE_LIST.exec(line);
@@ -279,7 +349,7 @@
       if (em) { out.push(em); i++; continue; }
 
       var para = [];
-      while (i < lines.length && !/^\s*$/.test(lines[i]) && (para.length === 0 || !isBlockStart(lines[i]))) {
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && (para.length === 0 || !(isBlockStart(lines[i]) || isTableStart(lines, i)))) {
         para.push(lines[i]);
         i++;
       }
@@ -287,7 +357,7 @@
     }
     return out.join('\n');
   }
-  R.md = function (text) { return md(text, 0); };
+  R.md = function (text, opts) { return md(text, 0, opts && opts.noIds ? null : {}); };
 
   /* Markdown to plain text, for excerpts, search and descriptions. */
   function plain(text) {
@@ -298,6 +368,8 @@
       .replace(/^\s*#{1,6}\s+/gm, '')
       .replace(/^\s*>\s?/gm, '')
       .replace(/^\s*([-*+]|\d{1,3}[.)])\s+/gm, '')
+      .replace(/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/gm, '')
+      .replace(/\s*\|\s*/g, ' ')
       .replace(/(\*\*|__|~~|`)/g, '')
       .replace(/(^|\W)[*_](\S[^*_]*?)[*_](?=\W|$)/g, '$1$2');
   }
@@ -346,8 +418,11 @@
       summary: str(it.summary),
       body: sec === 'questions' ? str(it.notes || it.body) : str(it.body),
       category: str(it.category).trim(),
-      kind: sec === 'projects' ? str(it.kind).trim() : '',
+      kind: sec === 'projects' || sec === 'recommended' ? str(it.kind).trim() : '',
       status: sec === 'projects' ? str(it.status).trim() : '',
+      // Recommendations: who made the work and when it came out.
+      creator: sec === 'recommended' ? str(it.creator).trim() : '',
+      year: sec === 'recommended' ? str(it.year).trim() : '',
       tags: arr(it.tags).map(function (t) { return str(t).trim(); }).filter(Boolean),
       date: str(it.date),
       created: str(it.created),
@@ -392,7 +467,7 @@
         customVersion: str(site.customVersion)
       }
     };
-    ['projects', 'creatives', 'questions'].forEach(function (k) {
+    LISTS.forEach(function (k) {
       var seen = {};
       out[k] = arr(c[k]).map(function (it) { return normItem(k, it); })
         .filter(function (it) { return !it.draft && it.title; })
@@ -517,18 +592,61 @@
   var CARD_VERSION = 'card-1';
   R.needsCard = function (sec, it) { return sec === 'questions' || !it.cover; };
   R.cardPath = function (c, sec, it) {
-    var key = [CARD_VERSION, c.site.name, sec, it.title, it.category, sec === 'projects' ? it.kind : ''].join('\n');
-    return 'assets/cards/' + sec.charAt(0) + '-' + it.slug.slice(0, 60) + '-' + hash(key) + '.jpg';
+    var parts = [CARD_VERSION, c.site.name, sec, it.title, it.category, sec === 'projects' ? it.kind : ''];
+    // Recommendations also carry who made the work, so their key adds it (other cards keep their old names).
+    if (sec === 'recommended') parts.push(it.kind, byline(it));
+    return 'assets/cards/' + sec.charAt(0) + '-' + it.slug.slice(0, 60) + '-' + hash(parts.join('\n')) + '.jpg';
   };
   R.cardsFor = function (content) {
     var c = R.normalize(content), out = [];
-    ['projects', 'creatives', 'questions'].forEach(function (sec) {
+    LISTS.forEach(function (sec) {
       c[sec].forEach(function (it) {
-        if (R.needsCard(sec, it)) out.push({ path: R.cardPath(c, sec, it), section: sec, label: SEC[sec].label, title: it.title, category: it.category, kind: it.kind, site: c.site.name });
+        if (!R.needsCard(sec, it)) return;
+        var card = { path: R.cardPath(c, sec, it), section: sec, label: SEC[sec].label, title: it.title, category: it.category, kind: it.kind, site: c.site.name };
+        if (sec === 'recommended') { card.byline = byline(it); card.label = 'Recommended' + (it.kind ? ' ' + it.kind.toLowerCase() : ''); }
+        out.push(card);
       });
     });
     return out;
   };
+
+  /* ------------------------------------------------------------------ recommendations */
+
+  // "Carl Sagan, 1995"
+  function byline(it) { return [it.creator, it.year].filter(Boolean).join(', '); }
+  R.byline = byline;
+
+  // Group headings: "Book" -> "Books", "Documentary" -> "Documentaries", "Series" stays.
+  var PLURALS = { series: 'Series', 'tv series': 'TV series', music: 'Music', art: 'Art', software: 'Software', media: 'Media', 'short story': 'Short stories' };
+  function typePlural(kind) {
+    var k = str(kind).trim();
+    if (!k) return 'Other';
+    if (PLURALS[k.toLowerCase()]) return PLURALS[k.toLowerCase()];
+    if (/(s|x|ch|sh)$/i.test(k)) return /s$/i.test(k) ? k : k + 'es';
+    if (/[^aeiou]y$/i.test(k)) return k.slice(0, -1) + 'ies';
+    return k + 's';
+  }
+  R.typePlural = typePlural;
+
+  // What schema.org calls the work, so search engines know a book from a film.
+  var WORK_TYPES = {
+    book: 'Book', novel: 'Book', textbook: 'Book', 'short story': 'ShortStory', essay: 'Article', article: 'Article',
+    paper: 'ScholarlyArticle', film: 'Movie', movie: 'Movie', documentary: 'Movie', series: 'TVSeries', 'tv series': 'TVSeries',
+    show: 'TVSeries', podcast: 'PodcastSeries', album: 'MusicAlbum', song: 'MusicRecording', game: 'VideoGame',
+    'video game': 'VideoGame', course: 'Course', website: 'WebSite', painting: 'Painting', photograph: 'Photograph'
+  };
+  function workType(kind) { return WORK_TYPES[str(kind).trim().toLowerCase()] || 'CreativeWork'; }
+  R.workType = workType;
+
+  // A YouTube or Vimeo address among the links plays right on the page.
+  function videoLink(it) {
+    for (var i = 0; i < it.links.length; i++) {
+      var u = it.links[i].url;
+      if (/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:\S*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)[\w-]{11}/i.test(u) || /^https?:\/\/(?:www\.)?vimeo\.com\/\d+/i.test(u)) return u;
+    }
+    return '';
+  }
+  R.videoLink = videoLink;
 
   /* ------------------------------------------------------------------ routes */
 
@@ -551,7 +669,7 @@
     var q = parseQuery(search);
     if (!parts.length) return { name: 'home' };
     var sec = parts[0].toLowerCase();
-    if (sec === 'projects' || sec === 'creatives' || sec === 'questions') {
+    if (LISTS.indexOf(sec) >= 0) {
       if (parts.length === 1) {
         return { name: 'section', section: sec, query: { field: slugify(q.field), type: slugify(q.type), theme: slugify(q.theme) } };
       }
@@ -636,13 +754,21 @@
 
   /* ------------------------------------------------------------------ rail */
 
+  // "Questions to Ask" reads "Questions" on a phone; the rest stays for screen readers.
+  function railLabel(s) {
+    if (s.short && s.label.indexOf(s.short) === 0) {
+      return '<span class="rail-label">' + esc(s.short) + '<span class="rail-label-rest">' + esc(s.label.slice(s.short.length)) + '</span></span>';
+    }
+    return '<span class="rail-label">' + esc(s.label) + '</span>';
+  }
+
   function railHTML(c, route) {
     var cur = route.section || '';
     var nav = SECTIONS.map(function (s) {
       var on = s.key === cur;
       var current = on ? (route.name === 'section' || route.name === 'contact' ? ' aria-current="page"' : ' aria-current="true"') : '';
       return '<a class="rail-link' + (on ? ' is-on' : '') + '" href="' + s.path + '" data-section="' + s.key + '"' + current + '>' +
-        '<span class="rail-label">' + esc(s.label) + '</span>' +
+        railLabel(s) +
         '<span class="rail-new" hidden></span>' +
         (s.key !== 'contact' ? '<span class="rail-count" data-count="' + s.key + '"></span>' : '') + '</a>';
     }).join('');
@@ -699,7 +825,8 @@
     var lines = {
       projects: ['No projects published yet.', 'Builds, research and papers will appear here as they’re published.'],
       creatives: ['No creative work published yet.', 'Poems, art, stories and games will appear here.'],
-      questions: ['No questions posted yet.', 'Open questions will appear here, sorted by field.']
+      questions: ['No questions posted yet.', 'Open questions will appear here, sorted by field.'],
+      recommended: ['Nothing recommended yet.', 'Books, films, videos and talks worth your time will appear here.']
     }[sec];
     return '<div class="empty"><p class="empty-title">' + esc(lines[0]) + '</p><p class="empty-line">' + esc(lines[1]) + '</p></div>';
   }
@@ -714,7 +841,8 @@
     var out = '';
     var groups = groupsOf(items);
     if (groups.length) {
-      out += '<nav class="chips chips-fields" aria-label="' + esc(SEC[sec].cats) + '">' +
+      // Named apart from the sidebar's own list of fields: two navigation areas never share a name.
+      out += '<nav class="chips chips-fields" aria-label="' + esc('Filter by ' + SEC[sec].cat.toLowerCase()) + '">' +
         chip(sectionHref(sec, { type: q.type, theme: q.theme }), 'All', !q.field) +
         groups.map(function (g) { return chip(sectionHref(sec, { field: g.slug, type: q.type, theme: q.theme }), g.label, q.field === g.slug, g.count); }).join('') +
         '</nav>';
@@ -722,7 +850,7 @@
     if (SEC[sec].kind) {
       var kinds = kindsOf(items);
       if (kinds.length > 1) {
-        out += '<nav class="chips chips-kinds" aria-label="' + esc(SEC[sec].kind) + '">' +
+        out += '<nav class="chips chips-kinds" aria-label="' + esc('Filter by ' + SEC[sec].kind.toLowerCase()) + '">' +
           chip(sectionHref(sec, { field: q.field, theme: q.theme }), 'Every type', !q.type) +
           kinds.map(function (k) { return chip(sectionHref(sec, { field: q.field, type: k.slug, theme: q.theme }), k.label, q.type === k.slug); }).join('') +
           '</nav>';
@@ -740,9 +868,9 @@
     var meta = metaSpans([it.category, it.kind, it.status]);
     return '<li class="entry' + (thumb ? ' has-thumb' : '') + '"' + attrs(it) + '>' +
       '<a class="entry-link" href="' + itemHref('projects', it.slug) + '">' +
-      '<span class="entry-text"><h3 class="entry-title">' + esc(it.title) + '</h3>' +
+      '<div class="entry-text"><h3 class="entry-title">' + esc(it.title) + '</h3>' +
       (it.summary ? '<span class="entry-sum">' + esc(it.summary) + '</span>' : '') +
-      (meta ? '<span class="entry-meta">' + meta + '</span>' : '') + '</span>' +
+      (meta ? '<span class="entry-meta">' + meta + '</span>' : '') + '</div>' +
       thumb + '</a></li>';
   }
 
@@ -772,8 +900,8 @@
     }
     return '<li class="tile' + (it.cover ? ' tile-has-img' : ' tile-has-text') + '"' + attrs(it) + '>' +
       '<a class="tile-link" href="' + itemHref('creatives', it.slug) + '">' + visual +
-      '<span class="tile-cap"><h2 class="tile-title">' + esc(it.title) + '</h2>' +
-      '<span class="tile-meta">' + metaSpans([it.category, fmtDay(it.date, 'year')]) + '</span></span></a></li>';
+      '<div class="tile-cap"><h2 class="tile-title">' + esc(it.title) + '</h2>' +
+      '<span class="tile-meta">' + metaSpans([it.category, fmtDay(it.date, 'year')]) + '</span></div></a></li>';
   }
 
   function creativeWall(items) {
@@ -787,7 +915,7 @@
   }
 
   function questionRow(it) {
-    var notes = it.body ? '<details class="q-notes"><summary>Notes</summary><div class="md">' + md(it.body) + '</div></details>' : '';
+    var notes = it.body ? '<details class="q-notes"><summary>Notes</summary><div class="md">' + md(it.body, 0, null) + '</div></details>' : '';
     var tags = tagLinks('questions', it.tags);
     return '<li class="q" id="q-' + esc(it.slug) + '"' + attrs(it) + '>' +
       '<a class="q-text" href="' + itemHref('questions', it.slug) + '">' + esc(it.title) + '</a>' +
@@ -813,6 +941,98 @@
     return html;
   }
 
+  /* ------------------------------------------------------------------ recommended: an annotated shelf */
+
+  // The work's own cover, or a small typeset plate (type, title, maker) when there is no image.
+  function recPlate(it, opts) {
+    opts = opts || {};
+    var cls = 'plate' + (opts.big ? ' plate-big' : '');
+    if (it.cover) {
+      // A landscape still (a video or a film frame) sits inside the plate instead of being cropped to a sliver.
+      var wide = it.cover.w && it.cover.h && it.cover.w / it.cover.h > 0.9;
+      return '<span class="' + cls + ' has-img' + (wide ? ' is-wide' : '') + '">' +
+        imgEl(it.cover, { alt: opts.alt != null ? opts.alt : '', thumb: !opts.big, eager: opts.big }) + '</span>';
+    }
+    return '<span class="' + cls + '" aria-hidden="true">' +
+      (it.kind ? '<span class="plate-kind">' + esc(it.kind) + '</span>' : '') +
+      '<span class="plate-title">' + esc(it.title) + '</span>' +
+      (it.creator ? '<span class="plate-by">' + esc(it.creator) + '</span>' : '') + '</span>';
+  }
+
+  function recRow(it, level, showKind) {
+    var meta = metaSpans([showKind ? it.kind : '', it.category]);
+    return '<li class="rec"' + attrs(it) + '><a class="rec-link" href="' + itemHref('recommended', it.slug) + '">' + recPlate(it) +
+      '<div class="rec-text"><h' + level + ' class="rec-title">' + esc(it.title) + '</h' + level + '>' +
+      (byline(it) ? '<span class="rec-by">' + bylineHTML(it) + '</span>' : '') +
+      (it.summary ? '<span class="rec-why">' + esc(it.summary) + '</span>' : '') +
+      (meta ? '<span class="rec-meta">' + meta + '</span>' : '') + '</div></a></li>';
+  }
+
+  function bylineHTML(it) {
+    return (it.creator ? '<span class="rec-creator">' + esc(it.creator) + '</span>' : '') +
+      (it.year ? '<span class="rec-year">' + esc(it.year) + '</span>' : '');
+  }
+
+  /* Grouped by type (Books, Films, Videos…) unless one type is already chosen. */
+  function recShelf(items, q) {
+    var kinds = kindsOf(items);
+    if (q.type || !kinds.length) {
+      return '<ul class="shelf">' + items.map(function (it) { return recRow(it, 2, !q.type); }).join('') + '</ul>';
+    }
+    var groups = kinds.slice().sort(function (a, b) { return typePlural(a.label).localeCompare(typePlural(b.label), undefined, { sensitivity: 'base' }); });
+    var html = groups.map(function (k) {
+      var list = items.filter(function (it) { return slugify(it.kind) === k.slug; });
+      return '<section class="shelf-group" aria-labelledby="t-' + k.slug + '">' +
+        '<h2 class="qgroup-title" id="t-' + k.slug + '"><a href="' + esc(sectionHref('recommended', { field: q.field, type: k.slug, theme: q.theme })) + '">' + esc(typePlural(k.label)) + '</a><span class="qgroup-n">' + list.length + '</span></h2>' +
+        '<ul class="shelf">' + list.map(function (it) { return recRow(it, 3, false); }).join('') + '</ul></section>';
+    }).join('');
+    var loose = items.filter(function (it) { return !it.kind; });
+    if (loose.length) {
+      html += '<section class="shelf-group" aria-labelledby="t-other"><h2 class="qgroup-title" id="t-other"><span>Other</span><span class="qgroup-n">' + loose.length + '</span></h2>' +
+        '<ul class="shelf">' + loose.map(function (it) { return recRow(it, 3, false); }).join('') + '</ul></section>';
+    }
+    return html;
+  }
+
+  function viewRec(c, list, idx) {
+    var it = list[idx];
+    var facts = [];
+    if (it.category) facts.push(['Field', '<a href="' + esc(sectionHref('recommended', { field: slugify(it.category) })) + '">' + esc(it.category) + '</a>']);
+    if (it.date) facts.push(['Recommended', esc(fmtDay(it.date))]);
+
+    var visual = it.cover
+      ? '<a class="zoom rec-visual" href="' + esc(src(it.cover.src)) + '" data-zoom>' + recPlate(it, { big: true, alt: it.cover.alt || 'Cover of ' + it.title }) + '</a>'
+      : '<div class="rec-visual">' + recPlate(it, { big: true }) + '</div>';
+
+    var find = it.links.map(function (l, i) {
+      var href = /^\/media\//.test(l.url) ? src(l.url) : l.url;
+      var label = l.label && l.label !== prettyUrl(l.url) ? l.label : (isExternal(href) ? 'Open on ' + hostOf(href) : 'Open');
+      return '<a class="btn' + (i === 0 ? ' btn-strong' : '') + '" href="' + esc(href) + '"' + extAttrs(href) + '>' + icon('out') + '<span>' + esc(label) + '</span></a>';
+    }).join('');
+
+    // A video recommendation plays here, unless the notes already show it.
+    var vid = videoLink(it);
+    var player = vid && it.body.indexOf(vid) < 0 ? embed(vid) : '';
+
+    var tags = it.tags.length ? '<p class="themes"><span class="themes-label">Themes</span>' + tagLinks('recommended', it.tags) + '</p>' : '';
+
+    return '<article class="item item-recommended"' + attrs(it) + '>' +
+      '<a class="crumb" href="/recommended/">' + icon('back') + 'Recommended</a>' +
+      '<header class="item-head rec-head">' + visual +
+      '<div class="rec-headtext">' +
+      (it.kind ? '<p class="rec-kicker"><a href="' + esc(sectionHref('recommended', { type: slugify(it.kind) })) + '">' + esc(it.kind) + '</a></p>' : '') +
+      '<h1 class="item-title" tabindex="-1">' + esc(it.title) + '</h1>' +
+      (byline(it) ? '<p class="rec-byline">' + bylineHTML(it) + '</p>' : '') +
+      '</div></header>' +
+      (it.summary ? '<p class="item-sum rec-sum">' + esc(it.summary) + '</p>' : '') +
+      (find ? '<p class="rec-find">' + find + '</p>' : '') +
+      (facts.length ? '<dl class="facts">' + facts.map(function (f) { return '<div><dt>' + esc(f[0]) + '</dt><dd>' + f[1] + '</dd></div>'; }).join('') + '</dl>' : '') +
+      player +
+      (it.body ? '<div class="md item-body">' + md(it.body, 0, {}) + '</div>' : '') +
+      tags + relatedHTML(c, 'recommended', list, idx) + pagerHTML('recommended', list, idx) +
+      '</article>';
+  }
+
   function viewSection(c, sec, q) {
     var items = c[sec];
     var extra = '';
@@ -827,6 +1047,7 @@
       body = '<div class="empty"><p class="empty-title">Nothing matches this filter.</p><p class="empty-line"><a href="' + SEC[sec].path + '">Show everything in ' + esc(SEC[sec].label) + '</a></p></div>';
     } else if (sec === 'projects') body = projectIndex(list);
     else if (sec === 'creatives') body = creativeWall(list);
+    else if (sec === 'recommended') body = recShelf(list, q);
     else body = questionStream(list, q);
     return head + chipsHTML(c, sec, q) + body;
   }
@@ -851,11 +1072,27 @@
     return '<nav class="pager" aria-label="More in ' + esc(SEC[sec].label) + '">' + one(newer, 'newer', 'Newer') + one(older, 'older', 'Older') + '</nav>';
   }
 
+  /* Long write-ups say how long they take to read (about 230 words a minute). Short ones don't need it. */
+  function readingMinutes(text) {
+    var words = plain(text).split(/\s+/).filter(Boolean).length;
+    return words < 400 ? 0 : Math.max(2, Math.round(words / 230));
+  }
+  R.readingMinutes = readingMinutes;
+
+  /* A project edited at least two days after its date shows when it was last revised. */
+  function revisedDay(it) {
+    var u = parseDay(it.updated), d = parseDay(it.date);
+    if (!u || !d) return '';
+    var gap = (Date.UTC(u.y, u.m - 1, u.d) - Date.UTC(d.y, d.m - 1, d.d)) / 86400000;
+    return gap >= 2 ? str(it.updated).slice(0, 10) : '';
+  }
+
   function viewItem(c, sec, slug) {
     var list = c[sec];
     var idx = -1;
     for (var i = 0; i < list.length; i++) if (list[i].slug === slug) { idx = i; break; }
     if (idx < 0) return null;
+    if (sec === 'recommended') return viewRec(c, list, idx);
     var it = list[idx];
     var s = SEC[sec];
     var facts = [];
@@ -863,6 +1100,10 @@
     if (it.kind) facts.push([s.kind, '<a href="' + esc(sectionHref(sec, { type: slugify(it.kind) })) + '">' + esc(it.kind) + '</a>']);
     if (it.status) facts.push(['Status', esc(it.status)]);
     if (it.date) facts.push([sec === 'creatives' ? 'Made' : 'Date', esc(fmtDay(it.date))]);
+    var revised = sec === 'projects' ? revisedDay(it) : '';
+    if (revised) facts.push(['Updated', esc(fmtDay(revised))]);
+    var minutes = readingMinutes(it.body);
+    if (minutes) facts.push(['Reading time', minutes + ' min']);
 
     var cover = it.cover ? '<figure class="item-cover"><a class="zoom" href="' + esc(src(it.cover.src)) + '" data-zoom>' + imgEl(it.cover, { eager: true }) + '</a>' +
       (it.cover.caption ? '<figcaption>' + esc(it.cover.caption) + '</figcaption>' : '') + '</figure>' : '';
@@ -902,7 +1143,7 @@
       (it.summary ? '<p class="item-sum">' + esc(it.summary) + '</p>' : '') +
       (facts.length ? '<dl class="facts">' + facts.map(function (f) { return '<div><dt>' + esc(f[0]) + '</dt><dd>' + f[1] + '</dd></div>'; }).join('') + '</dl>' : '') +
       '</header>' + cover +
-      (it.body ? '<div class="md item-body">' + md(it.body) + '</div>' : '') +
+      (it.body ? '<div class="md item-body">' + md(it.body, 0, {}) + '</div>' : '') +
       gallery + files + links + cite + tags + relatedHTML(c, sec, list, idx) + pagerHTML(sec, list, idx) +
       '</article>';
   }
@@ -918,7 +1159,9 @@
     var title = sec === 'questions' ? (same ? 'More questions in ' + it.category : 'Related questions') : (same ? 'More in ' + it.category : 'Related');
     return '<section class="related" aria-labelledby="related-title"><h2 class="related-title" id="related-title">' + esc(title) + '</h2>' +
       '<ul class="related-list">' + rel.map(function (o) {
-        var meta = sec === 'questions' ? [fmtDay(o.date)] : [sec === 'projects' ? o.kind : '', same ? '' : o.category, fmtDay(o.date, 'year')];
+        var meta = sec === 'questions' ? [fmtDay(o.date)]
+          : sec === 'recommended' ? [o.kind, o.creator, same ? '' : o.category]
+          : [sec === 'projects' ? o.kind : '', same ? '' : o.category, fmtDay(o.date, 'year')];
         return '<li><a class="related-link' + (sec === 'questions' ? ' is-question' : '') + '" href="' + itemHref(sec, o.slug) + '">' +
           '<span class="related-name">' + esc(o.title) + '</span>' +
           (metaSpans(meta) ? '<span class="related-meta">' + metaSpans(meta) + '</span>' : '') + '</a></li>';
@@ -937,7 +1180,7 @@
       (it.category ? '<p class="qpage-field"><a href="' + esc(sectionHref('questions', { field: slugify(it.category) })) + '">' + esc(it.category) + '</a></p>' : '') +
       '<h1 class="qpage-text" tabindex="-1">' + esc(it.title) + '</h1>' +
       (it.date ? '<p class="qpage-date">Asked ' + esc(fmtDay(it.date)) + '</p>' : '') +
-      (it.body ? '<div class="md qpage-notes">' + md(it.body) + '</div>' : '') +
+      (it.body ? '<div class="md qpage-notes">' + md(it.body, 0, {}) + '</div>' : '') +
       (it.tags.length ? '<p class="themes"><span class="themes-label">Themes</span>' + tagLinks('questions', it.tags) + '</p>' : '') +
       '<p class="qpage-actions">' +
       '<button type="button" class="btn" data-action="share" data-share="' + esc(itemHref('questions', it.slug)) + '" data-share-text="' + esc(it.title) + '" hidden>' + icon('share') + '<span>Share</span></button>' +
@@ -977,17 +1220,19 @@
       '<h1 class="home-name" tabindex="-1">' + esc(c.site.name) + '</h1>' +
       (c.site.tagline ? '<p class="home-line">' + esc(c.site.tagline) + '</p>' : '') +
       '<nav class="home-nav" aria-label="Sections">' + SECTIONS.map(function (s, i) {
-        return '<a href="' + s.path + '" data-section="' + s.key + '"><span class="home-index" aria-hidden="true">0' + (i + 1) + '</span><span class="home-label">' + esc(s.label) + '</span>' +
+        return '<a href="' + s.path + '" data-section="' + s.key + '"><span class="home-index" aria-hidden="true">' + (i < 9 ? '0' : '') + (i + 1) + '</span><span class="home-label">' + esc(s.label) + '</span>' +
           homeIntro(c, s.key) + '<span class="home-new" hidden></span></a>';
       }).join('') + '</nav>' +
       '</main>' + controlsHTML('home');
   }
 
+  R.defaultDescription = function (name) { return 'Projects, creative work, open questions and recommendations by ' + name + '.'; };
+
   /* render(content, route) -> what goes inside <div id="view">, plus page metadata */
   R.render = function (content, route) {
     var c = R.normalize(content);
     var name = c.site.name;
-    var desc = c.site.description || ('Projects, creative work and open questions by ' + name + '.');
+    var desc = c.site.description || R.defaultDescription(name);
     var v = { title: name, description: desc, image: '', layout: 'app', bodyClass: '', html: '', status: 200 };
     var main = '';
 
@@ -1011,6 +1256,11 @@
       if (main && it) {
         v.title = it.title + ' — ' + name;
         v.description = it.summary || clip(plain(it.body), 180) || desc;
+        if (route.section === 'recommended') {
+          v.title = it.title + (it.creator ? ' by ' + it.creator : '') + ' — ' + name;
+          v.description = it.summary || clip(plain(it.body), 180) ||
+            ('Recommended by ' + name + ': ' + it.title + (it.creator ? ' by ' + it.creator : '') + (it.year ? ' (' + it.year + ')' : '') + '.');
+        }
         v.item = it;
         if (it.cover) { v.image = it.cover.src; v.imageSize = it.cover.w && it.cover.h ? [it.cover.w, it.cover.h] : null; }
         else { v.image = '/' + R.cardPath(c, route.section, it); v.imageSize = [1200, 630]; }
@@ -1049,6 +1299,17 @@
   var THEME_BOOT = "(function(d){d.classList.add('js');try{var t=localStorage.getItem('ar-theme');if(t==='night'||t==='paper')d.setAttribute('data-theme',t);if(localStorage.getItem('ar-seen'))d.classList.add('seen')}catch(e){}setTimeout(function(){if(!window.__siteReady)d.classList.remove('js')},6000)})(document.documentElement);";
   R.THEME_BOOT = THEME_BOOT;
 
+  /*
+   * Content Security Policy. GitHub Pages can't send security headers, so the policy rides in a <meta> tag.
+   * Scripts may only come from this site (plus the one small inline script above, allowed by its exact hash),
+   * so nothing injected into a page could run. Images and audio may come from anywhere, videos only from
+   * YouTube's privacy-enhanced player and Vimeo. Change THEME_BOOT and its hash must change too (a test checks).
+   */
+  R.THEME_BOOT_HASH = 'sha256-UxO70Z8M6GlY+qybMXOsB+joCaE+ZIlM/8RQp+c0sl0=';
+  R.CSP = "default-src 'self'; script-src 'self' '" + R.THEME_BOOT_HASH + "'; style-src 'self' 'unsafe-inline'; " +
+    "img-src * data:; media-src *; font-src 'self'; connect-src 'self'; manifest-src 'self'; " +
+    "frame-src https://www.youtube-nocookie.com https://player.vimeo.com; object-src 'none'; base-uri 'self'; form-action 'none'";
+
   function absUrl(base, path) {
     if (!path) return '';
     if (/^https?:\/\//i.test(path)) return path;
@@ -1075,7 +1336,11 @@
     if (sec) crumbs.push({ name: sec.label, url: base + sec.path });
     var graph = [];
     var it = v.item;
-    if (it && (route.name === 'item' || route.name === 'question')) {
+    if (it && route.section === 'recommended') {
+      var rurl = base + itemHref('recommended', it.slug);
+      crumbs.push({ name: clip(it.title, 110), url: rurl });
+      graph.push(recommendationData(c, it, v, base, rurl));
+    } else if (it && (route.name === 'item' || route.name === 'question')) {
       var url = base + itemHref(route.section, it.slug);
       crumbs.push({ name: clip(it.title, 110), url: url });
       var scholarly = R.isScholarly(route.section, it);
@@ -1105,6 +1370,34 @@
     return jsonLd({ '@context': 'https://schema.org', '@graph': graph });
   }
 
+  /* A recommendation's page is about someone else's work: the page is the site author's, the work is theirs. */
+  function recommendationData(c, it, v, base, url) {
+    var type = workType(it.kind);
+    var work = { '@type': type, name: it.title };
+    if (it.creator) {
+      var role = type === 'Movie' || type === 'TVSeries' ? 'director' : (type === 'MusicAlbum' || type === 'MusicRecording') ? 'byArtist' : 'author';
+      if (type === 'Course' || type === 'WebSite' || type === 'PodcastSeries' || type === 'VideoGame') role = 'creator';
+      work[role] = it.creator;
+    }
+    if (/^\d{4}$/.test(it.year)) work.datePublished = it.year;
+    if (it.links.length && isExternal(it.links[0].url)) work.url = it.links[0].url;
+    var page = {
+      '@type': 'WebPage',
+      '@id': url,
+      url: url,
+      name: v.title,
+      about: work,
+      author: { '@type': 'Person', name: authorOf(c) },
+      isPartOf: { '@id': base + '/#site' }
+    };
+    if (v.description) page.description = v.description;
+    if (it.date) page.datePublished = it.date;
+    if (v.image) page.image = absUrl(base, v.image);
+    var words = [it.category, it.kind].concat(it.tags).filter(Boolean);
+    if (words.length) page.keywords = words.join(', ');
+    return page;
+  }
+
   /* Google Scholar's citation tags, on paper-like projects only. */
   function scholarMeta(c, route, v) {
     var it = v.item;
@@ -1126,11 +1419,13 @@
       '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n' +
       '<title>' + esc(v.title) + '</title>\n' +
       '<meta name="description" content="' + esc(v.description) + '">\n' +
+      (c.site.author ? '<meta name="author" content="' + esc(c.site.author) + '">\n' : '') +
       '<meta name="theme-color" content="' + R.themeColor(c.site.theme) + '">\n' +
       '<meta name="color-scheme" content="dark light">\n';
     if (base && v.status !== 404) out += '<link rel="canonical" href="' + esc(base + path) + '">\n';
     if (v.status === 404) out += '<meta name="robots" content="noindex">\n';
     out += '<meta property="og:site_name" content="' + esc(c.site.name) + '">\n' +
+      '<meta property="og:locale" content="en_US">\n' +
       '<meta property="og:title" content="' + esc(v.title) + '">\n' +
       '<meta property="og:description" content="' + esc(v.description) + '">\n' +
       '<meta property="og:type" content="' + (route.name === 'item' || route.name === 'question' ? 'article' : 'website') + '">\n' +
@@ -1149,8 +1444,11 @@
     var v = R.render(c, route);
     var av = encodeURIComponent(c.site.assetVersion || R.VERSION);
     var cv = encodeURIComponent(c.site.customVersion || av);
+    var meta = R.headMeta(c, route, v);
+    // The policy goes right after the charset and viewport, before anything it governs.
+    var cut = meta.indexOf('<title>');
     return '<!doctype html>\n<html lang="en" data-theme="' + c.site.theme + '">\n<head>\n' +
-      R.headMeta(c, route, v) +
+      meta.slice(0, cut) + '<meta http-equiv="Content-Security-Policy" content="' + esc(R.CSP) + '">\n' + meta.slice(cut) +
       '<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">\n' +
       '<link rel="icon" href="/favicon.ico" sizes="32x32">\n' +
       '<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">\n' +
@@ -1178,11 +1476,13 @@
       { name: 'section', section: 'projects', query: {} },
       { name: 'section', section: 'creatives', query: {} },
       { name: 'section', section: 'questions', query: {} },
+      { name: 'section', section: 'recommended', query: {} },
       { name: 'contact', section: 'contact' }
     ];
     c.projects.forEach(function (it) { routes.push({ name: 'item', section: 'projects', slug: it.slug }); });
     c.creatives.forEach(function (it) { routes.push({ name: 'item', section: 'creatives', slug: it.slug }); });
     c.questions.forEach(function (it) { routes.push({ name: 'question', section: 'questions', slug: it.slug }); });
+    c.recommended.forEach(function (it) { routes.push({ name: 'item', section: 'recommended', slug: it.slug }); });
     return routes;
   };
 
@@ -1190,16 +1490,16 @@
   R.searchIndex = function (content) {
     var c = R.normalize(content);
     var out = [];
-    ['projects', 'creatives', 'questions'].forEach(function (sec) {
+    LISTS.forEach(function (sec) {
       c[sec].forEach(function (it) {
         out.push({
           section: sec,
           sectionLabel: SEC[sec].label,
           title: it.title,
-          sub: [it.category, it.kind].filter(Boolean).join(', '),
+          sub: (sec === 'recommended' ? [it.kind, it.creator] : [it.category, it.kind]).filter(Boolean).join(', '),
           url: itemHref(sec, it.slug),
-          hay: [it.title, it.summary, it.category, it.kind, it.tags.join(' '), plain(it.body)].join(' \n ').toLowerCase(),
-          head: (it.title + ' ' + it.category + ' ' + it.tags.join(' ')).toLowerCase(),
+          hay: [it.title, it.creator, it.year, it.summary, it.category, it.kind, it.tags.join(' '), plain(it.body)].join(' \n ').toLowerCase(),
+          head: (it.title + ' ' + it.creator + ' ' + it.category + ' ' + it.tags.join(' ')).toLowerCase(),
           date: it.date
         });
       });

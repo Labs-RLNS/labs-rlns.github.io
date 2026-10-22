@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-22T14:18:00.807Z",
+ "updated": "2026-10-22T20:58:47.000Z",
  "site": {
   "name": "RLNS",
   "email": "ajrolens@rocketmail.com",
@@ -9,11 +9,13 @@
   "intros": {
    "projects": "Objective",
    "creatives": "Subjective",
-   "questions": "Philosophical"
+   "questions": "Philosophical",
+   "recommended": "Books, films, talks and other work worth your time."
   },
-  "assetVersion": "1.2.0"
+  "assetVersion": "1.3.0"
  },
  "projects": [],
  "creatives": [],
- "questions": []
+ "questions": [],
+ "recommended": []
 }
