@@ -119,6 +119,15 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
+  /* Keep text clear of the notch on phones held sideways (zero everywhere else). */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Long words and pasted links wrap instead of running off the side of a phone screen. */
+.entry-title, .entry-sum, .tile-title, .tile-text, .item-title, .item-sum, .facts dd,
+.q-text, .qpage-text, .qgroup-title, .pager-title, .tag, .palette-title {
+  overflow-wrap: anywhere;
 }
 
 img, svg, video, iframe { display: block; max-width: 100%; }
@@ -256,6 +265,10 @@ body::after {
   justify-items: center;
   padding: 64px 24px 96px;
   text-align: center;
+  /* The glow is wider than a phone screen. Clip it here so it can't widen the page:
+     on phones that made the browser zoom out and pushed the corner buttons off-screen. */
+  overflow: hidden;
+  overflow: clip;
 }
 
 .home-glow {
@@ -1024,6 +1037,12 @@ html.js img.develop.is-in { opacity: 1; filter: none; }
   .home-nav { flex-direction: column; align-items: center; gap: 0; }
   .home-nav a { padding: 7px 2px; }
   .controls-home .ctl { width: 40px; padding: 0; justify-content: center; }
+}
+
+/* The narrowest phones: all four sections still fit across the top bar. */
+@media (max-width: 380px) {
+  .rail-nav { padding-left: 4px; padding-right: 4px; gap: 0; }
+  .rail-link { padding: 9px 6px; font-size: 0.8125rem; }
 }
 
 /* ------------------------------------------------------------ motion & print */
