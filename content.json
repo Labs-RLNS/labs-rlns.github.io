@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-21T23:58:56.059Z",
+ "updated": "2026-10-22T01:22:57.324Z",
  "site": {
   "name": "Austin Rolens",
   "email": "ajrolens@rocketmail.com",
@@ -10,7 +10,7 @@
    "creatives": "Poems, art, stories and games made to be felt.",
    "questions": "Open questions nobody has answered yet, sorted by field."
   },
-  "assetVersion": "1.0.0",
+  "assetVersion": "1.0.1",
   "url": "https://labs-rlns.github.io"
  },
  "projects": [],
